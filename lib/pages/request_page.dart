@@ -1,8 +1,8 @@
 // lib/pages/request_page.dart
 import 'package:flutter/material.dart';
 import '../config.dart';
-import '../services/supabase_service.dart';
-import '../auth.dart';
+import '../services/firebase_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 
 class RequestPage extends StatefulWidget {
@@ -23,19 +23,117 @@ class _RequestPageState extends State<RequestPage> {
   final _passwordFocus = FocusNode();
   final _confirmPasswordFocus = FocusNode();
   bool loading = false;
+  bool _initialLoading = true;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   String? _requestStatus;
-  String? _requestMessage;
-  bool get _hasExistingRequest => _requestStatus == 'pending';
 
+  DateTime? _deviceRejectionTime;
+  Duration _timeLeft = Duration.zero;
+  Timer? _cooldownTimer;
+  StreamSubscription? _rejectedUserSubscription;
+
+  bool get _hasExistingRequest => _requestStatus == 'pending';
   bool _isLoggedIn = false;
 
   @override
   void initState() {
     super.initState();
-    _checkExistingRequest();
-    _checkLoginStatus();
+    _initializeFlow();
+  }
+
+  Future<void> _initializeFlow() async {
+    setState(() => _initialLoading = true);
+    await Future.wait([
+      _checkDeviceRejection(),
+      _checkExistingRequest(),
+      _checkLoginStatus(),
+    ]);
+    if (mounted) {
+      setState(() => _initialLoading = false);
+    }
+  }
+
+  Future<void> _checkDeviceRejection() async {
+    final rejectionTime = await FirebaseService.getDeviceRejectionTime();
+    final rejectedUserId = await FirebaseService.getDeviceRejectionUserId();
+
+    if (rejectionTime != null) {
+      if (mounted) {
+        setState(() {
+          _deviceRejectionTime = rejectionTime;
+          _calculateTimeLeft();
+        });
+      }
+      _startCooldownTimer();
+
+      // If we have a rejectedUserId, listen for verification while logged out
+      if (rejectedUserId != null && !_isLoggedIn) {
+        _listenForRejectionClearing(rejectedUserId);
+      }
+    }
+  }
+
+  void _listenForRejectionClearing(String uid) {
+    _rejectedUserSubscription?.cancel();
+    _rejectedUserSubscription = FirebaseService.getUserDataStream(uid).listen(
+      (userDataSnapshot) {
+        if (!mounted) return;
+        final userData = userDataSnapshot.data();
+        if (userData == null) return;
+
+        final status = (userData['status'] ?? '').toString().toLowerCase();
+
+        if (status == 'verified' || status == 'pending') {
+          // Rejection was lifted or changed! Clear local penalty.
+          FirebaseService.clearDeviceRejection();
+          if (mounted) {
+            setState(() {
+              _timeLeft = Duration.zero;
+              _requestStatus = status;
+              _deviceRejectionTime = null;
+            });
+            _cooldownTimer?.cancel();
+            _rejectedUserSubscription?.cancel();
+          }
+        }
+      },
+      onError: (e) {
+        debugPrint('[REQUEST_PAGE] ⚠️ Error syncing status: $e');
+        // Likely permission error since we aren't using Anon Auth, but we try anyway
+      },
+    );
+  }
+
+  void _startCooldownTimer() {
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _calculateTimeLeft();
+    });
+  }
+
+  void _calculateTimeLeft() {
+    if (_deviceRejectionTime == null) return;
+
+    final now = DateTime.now();
+    final unlockTime = _deviceRejectionTime!.add(const Duration(hours: 24));
+    final difference = unlockTime.difference(now);
+
+    if (mounted) {
+      setState(() {
+        _timeLeft = difference.isNegative ? Duration.zero : difference;
+        if (_timeLeft == Duration.zero) {
+          _cooldownTimer?.cancel();
+        }
+      });
+    }
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
   }
 
   @override
@@ -48,29 +146,37 @@ class _RequestPageState extends State<RequestPage> {
     _emailFocus.dispose();
     _passwordFocus.dispose();
     _confirmPasswordFocus.dispose();
+    _cooldownTimer?.cancel();
+    _rejectedUserSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _checkLoginStatus() async {
-    final loginData = await Auth.getLogin();
+    final user = FirebaseAuth.instance.currentUser;
     if (!mounted) return;
     setState(() {
-      _isLoggedIn = loginData != null;
+      _isLoggedIn = user != null;
     });
   }
 
   Future<void> _checkExistingRequest() async {
-    try {
-      final email = emailCtrl.text.trim();
-      if (email.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-      final exists = await SupabaseService.checkRequestStatus(email);
+    setState(() => loading = true);
+    try {
+      final doc = await FirebaseService.getUserData(user.uid);
       if (!mounted) return;
-      setState(() {
-        _requestStatus = exists ? 'pending' : null;
-      });
+
+      if (doc != null) {
+        setState(() {
+          _requestStatus = doc['status']?.toString().toLowerCase();
+        });
+      }
     } catch (e) {
-      debugPrint('Error checking existing request: $e');
+      debugPrint('[REQUEST_PAGE] Error checking existing request: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -94,10 +200,10 @@ class _RequestPageState extends State<RequestPage> {
 
     setState(() => loading = true);
     try {
-      final response = await SupabaseService.sendRequest(
-        name: nameCtrl.text.trim(),
-        email: emailCtrl.text.trim(),
-        password: passwordCtrl.text,
+      await FirebaseService.signUp(
+        emailCtrl.text.trim(),
+        passwordCtrl.text,
+        nameCtrl.text.trim(),
       );
 
       if (!mounted) return;
@@ -116,9 +222,9 @@ class _RequestPageState extends State<RequestPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(response['message'] ?? 'Request sent successfully'),
-          duration: const Duration(seconds: 2),
+        const SnackBar(
+          content: Text('Request sent successfully! Admin will review it.'),
+          duration: Duration(seconds: 2),
         ),
       );
     } on TimeoutException {
@@ -184,7 +290,9 @@ class _RequestPageState extends State<RequestPage> {
         Text(
           message,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: color == Colors.red ? color : Config.textTertiary,
+            color: color == Colors.red
+                ? color
+                : Config.getTextColor(context, level: 3),
           ),
           textAlign: TextAlign.center,
         ),
@@ -200,25 +308,27 @@ class _RequestPageState extends State<RequestPage> {
         TextField(
           controller: nameCtrl,
           focusNode: _nameFocus,
-          cursorColor: Config.primaryColor,
+          style: TextStyle(color: Config.getTextColor(context)),
           decoration: InputDecoration(
-            hoverColor: Config.background,
+            hoverColor: Colors.transparent,
             labelText: 'Full Name',
-            labelStyle: TextStyle(color: Config.textQuaternary),
+            labelStyle: TextStyle(
+              color: Config.getTextColor(context, level: 3),
+            ),
             border: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(color: Config.primaryColor, width: 1),
             ),
             filled: true,
-            fillColor: Config.background,
+            fillColor: Config.getBackgroundColor(context),
             prefixIcon: Icon(
               Icons.person_outline,
-              color: Config.textQuaternary,
+              color: Config.getTextColor(context, level: 3),
             ),
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
@@ -236,25 +346,27 @@ class _RequestPageState extends State<RequestPage> {
         TextField(
           controller: emailCtrl,
           focusNode: _emailFocus,
-          cursorColor: Config.primaryColor,
+          style: TextStyle(color: Config.getTextColor(context)),
           decoration: InputDecoration(
-            hoverColor: Config.background,
+            hoverColor: Colors.transparent,
             labelText: 'Email',
-            labelStyle: TextStyle(color: Config.textQuaternary),
+            labelStyle: TextStyle(
+              color: Config.getTextColor(context, level: 3),
+            ),
             border: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(color: Config.primaryColor, width: 1),
             ),
             filled: true,
-            fillColor: Config.background,
+            fillColor: Config.getBackgroundColor(context),
             prefixIcon: Icon(
               Icons.email_outlined,
-              color: Config.textQuaternary,
+              color: Config.getTextColor(context, level: 3),
             ),
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
@@ -273,32 +385,37 @@ class _RequestPageState extends State<RequestPage> {
         TextField(
           controller: passwordCtrl,
           focusNode: _passwordFocus,
-          cursorColor: Config.primaryColor,
+          style: TextStyle(color: Config.getTextColor(context)),
           decoration: InputDecoration(
-            hoverColor: Config.background,
+            hoverColor: Colors.transparent,
             labelText: 'Password',
-            labelStyle: TextStyle(color: Config.textQuaternary),
+            labelStyle: TextStyle(
+              color: Config.getTextColor(context, level: 3),
+            ),
             border: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(color: Config.primaryColor, width: 1),
             ),
             filled: true,
-            fillColor: Config.background,
+            fillColor: Config.getBackgroundColor(context),
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 12,
             ),
-            prefixIcon: Icon(Icons.lock_outline, color: Config.textQuaternary),
+            prefixIcon: Icon(
+              Icons.lock_outline,
+              color: Config.getTextColor(context, level: 3),
+            ),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                color: Config.textQuaternary,
+                color: Config.getTextColor(context, level: 3),
               ),
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
@@ -315,34 +432,39 @@ class _RequestPageState extends State<RequestPage> {
         TextField(
           controller: confirmPasswordCtrl,
           focusNode: _confirmPasswordFocus,
-          cursorColor: Config.primaryColor,
+          style: TextStyle(color: Config.getTextColor(context)),
           decoration: InputDecoration(
-            hoverColor: Config.background,
+            hoverColor: Colors.transparent,
             labelText: 'Confirm Password',
-            labelStyle: TextStyle(color: Config.textQuaternary),
+            labelStyle: TextStyle(
+              color: Config.getTextColor(context, level: 3),
+            ),
             border: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Config.borderSecondary),
+              borderSide: BorderSide(color: Config.getDividerColor(context)),
             ),
             focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(color: Config.primaryColor, width: 1),
             ),
             filled: true,
-            fillColor: Config.background,
+            fillColor: Config.getBackgroundColor(context),
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 12,
             ),
-            prefixIcon: Icon(Icons.lock_outline, color: Config.textQuaternary),
+            prefixIcon: Icon(
+              Icons.lock_outline,
+              color: Config.getTextColor(context, level: 3),
+            ),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscureConfirmPassword
                     ? Icons.visibility
                     : Icons.visibility_off,
-                color: Config.textQuaternary,
+                color: Config.getTextColor(context, level: 3),
               ),
               onPressed: () => setState(
                 () => _obscureConfirmPassword = !_obscureConfirmPassword,
@@ -361,7 +483,7 @@ class _RequestPageState extends State<RequestPage> {
           onPressed: loading || _hasExistingRequest ? null : sendRequest,
           style: FilledButton.styleFrom(
             backgroundColor: Config.primaryColor,
-            disabledBackgroundColor: Config.borderSecondary,
+            disabledBackgroundColor: Config.getDividerColor(context),
             padding: const EdgeInsets.all(16),
             textStyle: const TextStyle(fontSize: 16),
             shape: RoundedRectangleBorder(
@@ -395,51 +517,83 @@ class _RequestPageState extends State<RequestPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_initialLoading) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: Center(
+          child: CircularProgressIndicator(color: Config.primaryColor),
+        ),
+      );
+    }
+
     // Hide completely when verified and logged in
     if (_requestStatus == 'verified' && _isLoggedIn) {
       return const SizedBox.shrink();
     }
 
     return Scaffold(
-      backgroundColor: Config.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 400),
             child: Card(
-              color: Config.background,
-              shadowColor: Colors.black54,
-              elevation: 8,
+              color: Config.getSurfaceColor(context),
+              shadowColor: Config.getShadowColor(context),
+              elevation: Config.isDarkMode(context) ? 0 : 8,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
+                side: Config.isDarkMode(context)
+                    ? BorderSide(color: Config.getDividerColor(context))
+                    : BorderSide.none,
               ),
               child: Padding(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 28,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Status Icon and Message
-                    if (_requestStatus == 'pending') ...[
+                    // Device Cooldown Timer
+                    if (_timeLeft > Duration.zero) ...[
+                      _buildStatusSection(
+                        icon: Icons.timer_outlined,
+                        color: Config.error,
+                        title: 'Request Cooldown',
+                        message:
+                            'This device is currently blocked from sending new requests due to a recent account rejection.',
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            const Text('You can try again in:'),
+                            const SizedBox(height: 8),
+                            Text(
+                              _formatDuration(_timeLeft),
+                              style: TextStyle(
+                                color: Colors.red[300],
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ]
+                    // Existing Request Status
+                    else if (_requestStatus == 'pending') ...[
                       _buildStatusSection(
                         icon: Icons.hourglass_top,
-                        color: Colors.orange,
+                        color: Colors.blue,
                         title: 'Request Pending',
                         message: 'Your request is waiting for admin approval.',
                       ),
-                    ] else if (_requestStatus == 'rejected' &&
-                        !_isLoggedIn) ...[
-                      _buildStatusSection(
-                        icon: Icons.error_outline,
-                        color: Colors.red,
-                        title: 'Previous Request Rejected',
-                        message:
-                            _requestMessage ??
-                            'Your previous request was rejected. You can submit a new request below.',
-                      ),
-                      const SizedBox(height: 32),
-                      _buildFormFields(),
                     ] else if (_requestStatus == 'verified') ...[
                       _buildStatusSection(
                         icon: Icons.check_circle_outline,

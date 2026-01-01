@@ -5,227 +5,106 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class Config {
   // ==================== ENVIRONMENT DETECTION ====================
-  /// Current environment (development, staging, production)
   static String get environment => dotenv.env['ENVIRONMENT'] ?? 'development';
-
-  /// Is running in production
   static bool get isProduction => environment == 'production';
-
-  /// Is running in debug/development mode
   static bool get isDevelopment => kDebugMode;
 
-  // ==================== SUPABASE CREDENTIALS (from .env) ====================
-  /// Supabase project URL
-  static String get supabaseUrl =>
-      dotenv.env['SUPABASE_URL'] ?? 'https://civbkywputkymyrhhliv.supabase.co';
-
-  /// Supabase anonymous key (public, for client-side operations)
-  static String get supabaseAnonKey =>
-      dotenv.env['SUPABASE_ANON_KEY'] ??
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpdmJreXdwdXRreW15cmhobGl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNzQ5NjYsImV4cCI6MjA4MDk1MDk2Nn0.l5LnVkboRX4yYlQHUeZhabo_VY6d8525lLjEpek5h1I';
-
-  /// Supabase service role key (secret, for server-side/admin operations)
-  /// ⚠️ SECURITY: Keep this key secure!
-  /// This key bypasses Row Level Security and should only be used for legitimate admin operations.
-  /// Available in both development and production for authorized admin users.
-  static String get supabaseServiceRoleKey =>
-      dotenv.env['SUPABASE_SERVICE_ROLE_KEY'] ?? '';
-
-  /// Base URL for the backend API.
-  ///
-  /// - On Android emulators use `http://10.0.2.2:5000` (alias to host machine).
-  /// - On iOS simulators use `http://localhost:5000` (simulator maps to host).
-  /// - For web use `http://localhost:5000`
-  /// - For real devices, we try multiple IP addresses for different networks
   static String get baseUrl {
-    // For web platform
-    if (kIsWeb) {
-      return 'http://localhost:5000';
-    }
-
-    // For mobile platforms
-    if (Platform.isIOS) {
-      return 'http://localhost:5000';
-    } else if (Platform.isAndroid) {
-      // Use specific IP for Android devices
-      // For home network
-      // return 'http://192.168.1.8:5000';
-      // For work network
-      return 'http://192.168.0.68:5000';
-    }
-
-    // Default fallback
+    if (kIsWeb) return 'http://localhost:5000';
+    if (Platform.isIOS) return 'http://localhost:5000';
+    if (Platform.isAndroid) return 'http://192.168.0.68:5000';
     return 'http://localhost:5000';
   }
 
-  // ==================== PRIMARY COLOR VARIATIONS ====================
-  /// Primary color (green) used throughout the app
-  static const Color primaryColor = Color.fromARGB(
-    255,
-    76,
-    175,
-    80,
-  ); // Material Green 500
+  // ==================== BRAND COLORS ====================
+  static const Color primaryColor = Color(0xFF17AF61); // Material Green 500
+  static const Color secondaryColor = Color(0xFF08BE60);
 
-  /// Very dark green (darkest variation of primary)
-  static const Color primaryDarkest = Color.fromARGB(
-    255,
-    27,
-    94,
-    32,
-  ); // Material Green 900
+  // ==================== LIGHT THEME COLORS ====================
+  static const Color bgLight = Colors.white;
+  static const Color textPrimaryLight = Color(0xFF2C2C2C);
+  static const Color textSecondaryLight = Color(0xFF575757);
+  static const Color textTertiaryLight = Color(0xFF8A8A8A);
+  static const Color dividerLight = Color(0xFFE5E5E5);
+  static const Color surfaceLight = Color(0xFFFAFAFA);
 
-  /// Dark green
-  static const Color primaryDark = Color.fromARGB(
-    255,
-    56,
-    142,
-    60,
-  ); // Material Green 700
-
-  /// Medium green
-  static const Color primaryMedium = Color.fromARGB(
-    255,
-    76,
-    175,
-    80,
-  ); // Material Green 500
-
-  /// Light green
-  static const Color primaryLight = Color.fromARGB(
-    255,
-    129,
-    199,
-    132,
-  ); // Material Green 300
-
-  /// Very light green (lightest variation)
-  static const Color primaryLightest = Color.fromARGB(
-    255,
-    200,
-    230,
-    201,
-  ); // Material Green 100
-
-  // ==================== SECONDARY COLOR VARIATIONS ====================
-  /// Secondary color - actual lightGreen from Flutter
-  static const Color secondaryColor = Color.fromARGB(
-    255,
-    139,
-    195,
-    74,
-  ); // Material LightGreen 500
-
-  /// Darker variation of secondary
-  static const Color secondaryDark = Color.fromARGB(
-    255,
-    104,
-    159,
-    56,
-  ); // Material LightGreen 700
-
-  /// Lighter variation of secondary (for gradient effects)
-  static const Color secondaryLight = Color.fromARGB(
-    255,
-    175,
-    221,
-    105,
-  ); // Material LightGreen 300
-
-  /// Very light secondary
-  static const Color secondaryLightest = Color.fromARGB(
-    255,
-    205,
-    235,
-    159,
-  ); // Material LightGreen 100
-
-  // ==================== PURPLE COLORS (FOR NON-ADMIN MESSAGES) ====================
-  /// Light purple color used for non-admin messages
-  static const Color lightPurpleColor = Color.fromARGB(255, 233, 230, 236);
-
-  /// Very light purple color used for non-admin message gradients
-  static const Color veryLightPurpleColor = Color.fromARGB(255, 247, 244, 250);
-
-  /// Darker light purple
-  static const Color purpleDark = Color.fromARGB(255, 215, 200, 220);
-
-  /// Even darker purple
-  static const Color purpleDarker = Color.fromARGB(255, 180, 155, 195);
-
-  // ==================== TEXT COLORS ====================
-  /// Primary text color (dark text for light backgrounds)
-  static const Color textPrimary = Color.fromARGB(255, 44, 44, 44);
-
-  /// Secondary text color (medium dark text)
-  static const Color textSecondary = Color.fromARGB(255, 87, 87, 87);
-
-  /// Tertiary text color (lighter text)
-  static const Color textTertiary = Color.fromARGB(255, 138, 138, 138);
-
-  /// Quaternary text color (even lighter text)
-  static const Color textQuaternary = Color.fromARGB(255, 170, 170, 170);
-
-  /// Hint text color (very light text)
-  static const Color textHint = Color.fromARGB(255, 189, 189, 189);
-
-  /// Light text color (for dark backgrounds)
-  static const Color textLight = Colors.white;
-
-  /// Text color for messages (white)
-  static const Color textMessage = Color.fromARGB(255, 255, 255, 255);
-
-  /// Text color for time stamps
-  static const Color textTimestamp = Color.fromARGB(255, 245, 245, 245);
-
-  /// Text color for admin names in messages
-  static const Color textAdminName = primaryColor;
-
-  // ==================== UTILITY COLORS ====================
-  /// Error/Delete color (red)
-  static final Color error = Colors.red[400]!;
-
-  /// Success color (green - same as primary)
-  static const Color success = primaryColor;
-
-  /// Warning color (orange)
-  static const Color warning = Colors.orange;
-
-  /// Info color (blue)
-  static const Color info = Colors.blue;
-
-  /// Divider color (light gray)
-  static const Color divider = Color.fromARGB(255, 229, 229, 229);
-
-  /// Background color (very light)
-  static const Color background = Colors.white;
-
-  /// Shadow color (black with transparency)
-  static const Color shadow = Color.fromARGB(19, 0, 0, 0);
+  // ==================== DARK THEME COLORS ====================
+  static const Color bgDark = Color(0xFF121212);
+  static const Color textPrimaryDark = Color(0xFFE1E1E1);
+  static const Color textSecondaryDark = Color(0xFFB0B0B0);
+  static const Color textTertiaryDark = Color(0xFF757575);
+  static const Color dividerDark = Color(0xFF2C2C2C);
+  static const Color surfaceDark = Color(0xFF1E1E1E);
 
   // ==================== MESSAGE COLORS ====================
-  /// Admin/Current user message background (primary gradient start)
-  static const Color messageBgAdminStart = primaryColor;
+  // Current user / Admin messages (Green Gradient)
+  static const Color messageAdminStart = primaryColor;
+  static const Color messageAdminEnd = secondaryColor;
 
-  /// Admin/Current user message background (secondary gradient end)
-  static const Color messageBgAdminEnd = secondaryColor;
+  // Other user messages
+  static const Color messageOtherStartLight = Color(0xFFE9E6EC);
+  static const Color messageOtherEndLight = Color(0xFFF7F4FA);
+  static const Color messageOtherStartDark = Color(0xFF2C2C2E);
+  static const Color messageOtherEndDark = Color(0xFF3A3A3C);
 
-  /// Other user message background (light purple start)
-  static const Color messageBgOtherStart = lightPurpleColor;
+  // ==================== THEME HELPERS ====================
+  static bool isDarkMode(BuildContext context) {
+    return Theme.of(context).brightness == Brightness.dark;
+  }
 
-  /// Other user message background (very light purple end)
-  static const Color messageBgOtherEnd = veryLightPurpleColor;
+  static Color getBackgroundColor(BuildContext context) {
+    return isDarkMode(context) ? bgDark : bgLight;
+  }
 
-  // ==================== BORDER & SHADOW COLORS ====================
-  /// Primary border color
-  static const Color borderPrimary = primaryLight;
+  static Color getSurfaceColor(BuildContext context) {
+    return isDarkMode(context) ? surfaceDark : surfaceLight;
+  }
 
-  /// Secondary border color
-  static const Color borderSecondary = divider;
+  static Color getTextColor(BuildContext context, {int level = 1}) {
+    if (isDarkMode(context)) {
+      if (level == 2) return textSecondaryDark;
+      if (level == 3) return textTertiaryDark;
+      return textPrimaryDark;
+    } else {
+      if (level == 2) return textSecondaryLight;
+      if (level == 3) return textTertiaryLight;
+      return textPrimaryLight;
+    }
+  }
 
-  /// Message border color with transparency
-  static Color messageBorderAdmin(double alpha) =>
-      messageBgAdminStart.withAlpha((alpha * 255).toInt());
-  static Color messageBorderOther(double alpha) =>
-      messageBgOtherStart.withAlpha((alpha * 255).toInt());
+  static Color getShadowColor(BuildContext context) {
+    return isDarkMode(context) ? Colors.transparent : const Color.fromARGB(50, 0, 0, 0);
+  }
+
+  static Color getDividerColor(BuildContext context) {
+    return isDarkMode(context) ? dividerDark : dividerLight;
+  }
+
+  static List<Color> getOtherMessageGradient(BuildContext context) {
+    return isDarkMode(context)
+        ? [messageOtherStartDark, messageOtherEndDark]
+        : [messageOtherStartLight, messageOtherEndLight];
+  }
+
+  // Legacy support for constants (mapping to light theme for now)
+  static final Color error = Colors.red[400]!;
+  static const Color success = primaryColor;
+  static const Color warning = Colors.orange;
+  static const Color info = Colors.blue;
+  static const Color background = bgLight;
+  static const Color textPrimary = textPrimaryLight;
+  static const Color textSecondary = textSecondaryLight;
+  static const Color textTertiary = textTertiaryLight;
+  static const Color textQuaternary = Color(0xFFAAAAAA);
+  static const Color textHint = Color(0xFFBDBDBD);
+  static const Color textLight = Colors.white;
+  static const Color textMessage = Colors.white;
+  static const Color textTimestamp = Color(0xFFF5F5F5);
+  static const Color textAdminName = primaryColor;
+  static const Color divider = dividerLight;
+  static const Color lightPurpleColor = messageOtherStartLight;
+  static const Color veryLightPurpleColor = messageOtherEndLight;
+  static const Color borderSecondary = dividerLight;
+  static const Color primaryLight = Color(0xFF81C784);
+  static const Color primaryLightest = Color(0xFFC8E6C9);
 }

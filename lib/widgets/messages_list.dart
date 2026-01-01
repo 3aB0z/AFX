@@ -3,18 +3,17 @@ import '../config.dart';
 import 'message_item.dart';
 
 class MessagesList extends StatefulWidget {
-  final List<Map<String, dynamic>> messages; // Confirmed messages from Supabase
-  final List<Map<String, dynamic>>
-  queueMessages; // Messages being sent (shown as loading)
+  final ValueNotifier<List<Map<String, dynamic>>> messagesNotifier;
+  final ValueNotifier<List<Map<String, dynamic>>> queueMessagesNotifier;
   final ScrollController scrollController;
-  final int userId;
+  final String userId;
   final dynamic lastAnimatedMessageId;
   final bool isLoadingMore;
   final Function(String content)? onResendMessage;
 
   const MessagesList({
-    required this.messages,
-    required this.queueMessages,
+    required this.messagesNotifier,
+    required this.queueMessagesNotifier,
     required this.scrollController,
     required this.userId,
     required this.lastAnimatedMessageId,
@@ -141,7 +140,7 @@ class MessagesListState extends State<MessagesList>
       if (mounted) {
         _completedAnimations.add(messageId);
         // Notify that this message should rebuild (animation complete)
-        _rebuildNotifier.value = Set.from([messageId]);
+        _rebuildNotifier.value = {messageId};
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _rebuildNotifier.value = {};
         });
@@ -192,31 +191,70 @@ class MessagesListState extends State<MessagesList>
   /// Used by ChatPage when a new realtime message arrives
   /// This only rebuilds MessagesList, not the entire ChatPage
   void addNewMessage(Map<String, dynamic> message) {
-    final messageId = message['id'] ?? message['clientId'];
+    addNewMessages([message]);
+  }
 
-    // IMPORTANT: Start animation BEFORE setState so it's already running when build happens
-    // This ensures SizeTransition has a non-zero value on first render
-    _completedAnimations.remove(messageId);
-    final controller = _getOrCreateController(messageId);
-    controller.reset();
-    controller.forward();
+  /// Add multiple new messages efficiently
+  void addNewMessages(List<Map<String, dynamic>> newMessages) {
+    if (newMessages.isEmpty) return;
 
-    // Mark animation as completed after duration
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) {
+    final currentMessages = List<Map<String, dynamic>>.from(
+      widget.messagesNotifier.value,
+    );
+
+    // Process all messages: setup animation and insert
+    // Iterate in reverse to maintain order (if list is [Oldest -> Newest], insert Newest first)
+    // Actually newMessages usually comes sorted. We want to insert at index 0.
+    // If input is [OldestNewMsg, ..., NewestNewMsg], we should insert Oldest first at 0, then Newer at 0...
+    // Wait, if we insert at 0, we push others down.
+    // If input is [Msg1, Msg2] (Msg2 is newer), and we want [Msg2, Msg1, OldMsgs...]
+    // We should insert Msg1 at 0 -> [Msg1, Old...]
+    // Then Msg2 at 0 -> [Msg2, Msg1, Old...]
+    // So we iterate forward: 0..N? No.
+    // ChatPage passes [Newest, ..., Oldest] in `messagesToAdd` if sorted by DESC.
+    // Let's assume input order matters.
+
+    for (var message in newMessages) {
+      final messageId = message['id'] ?? message['clientId'];
+      final isMe = message['sender_id'] == widget.userId;
+
+      // Ensure controller exists
+      final controller = _getOrCreateController(messageId);
+
+      if (isMe) {
+        // Current user: Already animated in queue OR shouldn't animate again if re-fetched
+        // Mark as completed immediately to prevent default animation
         _completedAnimations.add(messageId);
-        // Notify that this message should rebuild (animation complete)
-        _rebuildNotifier.value = Set.from([messageId]);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _rebuildNotifier.value = {};
+        // Do NOT reset/forward controller
+      } else {
+        // Other user: New incoming message, triggers animation
+        _completedAnimations.remove(messageId);
+        controller.reset();
+        controller.forward(from: 0.0);
+
+        // Auto-mark completion after duration
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            _completedAnimations.add(messageId);
+            // Notify that this message should rebuild (animation complete)
+            _rebuildNotifier.value = {messageId};
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _rebuildNotifier.value = {};
+            });
+          }
         });
       }
-    });
 
-    // Insert at the top and trigger list rebuild (only MessagesListState rebuilds)
-    setState(() {
-      widget.messages.insert(0, message);
-    });
+      // Insert at top
+      currentMessages.insert(0, message);
+    }
+
+    debugPrint(
+      '[ANIMATION] 🎬 Started animation for ${newMessages.length} messages',
+    );
+
+    // Single update triggers ONE rebuild
+    widget.messagesNotifier.value = currentMessages;
 
     // Scroll to top immediately to show new message
     if (widget.scrollController.hasClients) {
@@ -228,7 +266,24 @@ class MessagesListState extends State<MessagesList>
     }
   }
 
-  /// Clear all rebuild flags
+  /// Add older messages to the bottom of the list (pagination)
+  /// Used by ChatPage when loading more history
+  /// This only rebuilds MessagesList, not the entire ChatPage
+  void addOlderMessages(List<Map<String, dynamic>> olderMessages) {
+    if (olderMessages.isEmpty) return;
+
+    // Mark as already animated so they don't animate when scrolling up
+    final ids = olderMessages.map((m) => m['id'] ?? m['clientId']).toList();
+    markMessagesAsAnimated(ids);
+
+    // Append to bottom and trigger list rebuild via Notifier
+    final currentMessages = List<Map<String, dynamic>>.from(
+      widget.messagesNotifier.value,
+    );
+    currentMessages.addAll(olderMessages);
+    widget.messagesNotifier.value = currentMessages;
+  }
+
   void clearRebuildFlags() {
     _messagesToRebuild.clear();
     _rebuildNotifier.value = {};
@@ -236,238 +291,262 @@ class MessagesListState extends State<MessagesList>
 
   @override
   Widget build(BuildContext context) {
-    final messages = widget.messages; // Confirmed messages
-    final queueMessages = widget.queueMessages; // Queue messages (loading)
-    final scrollController = widget.scrollController;
-    final userId = widget.userId;
-    final isLoadingMore = widget.isLoadingMore;
+    // Listen to both notifiers
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        widget.messagesNotifier,
+        widget.queueMessagesNotifier,
+      ]),
+      builder: (context, _) {
+        final messages = widget.messagesNotifier.value;
+        final queueMessages = widget.queueMessagesNotifier.value;
+        debugPrint(
+          '[UI_TRACE] Builder Run. Queue: ${queueMessages.length}, Messages: ${messages.length}',
+        );
+        final scrollController = widget.scrollController;
+        final userId = widget.userId;
+        final isLoadingMore = widget.isLoadingMore;
 
-    // Combine ALL queue messages + ALL confirmed messages
-    final allMessagesToDisplay = [...queueMessages, ...messages];
+        // Combine ALL queue messages + ALL confirmed messages
+        final allMessagesToDisplay = [...queueMessages, ...messages];
 
-    if (allMessagesToDisplay.isNotEmpty) {
-       debugPrint('[MESSAGES LIST] Building list with ${allMessagesToDisplay.length} messages');
-       for (int k = 0; k < 3 && k < allMessagesToDisplay.length; k++) {
-         debugPrint('[MESSAGES LIST] Item $k: ${allMessagesToDisplay[k]['content']} (ID: ${allMessagesToDisplay[k]['id']})');
-       }
-    }
-
-    // Show loading indicator if no messages
-    if (allMessagesToDisplay.isEmpty) {
-      return Center(
-        child: CircularProgressIndicator(
-          color: Config.primaryColor,
-          strokeWidth: 3,
-        ),
-      );
-    }
-
-    return RawScrollbar(
-      controller: scrollController,
-      thumbVisibility: true,
-      trackVisibility: false,
-      thickness: 6,
-      radius: const Radius.circular(3),
-      thumbColor: Config.primaryColor.withAlpha(100),
-      interactive: true,
-      child: ListView.builder(
-        controller: scrollController,
-        padding: EdgeInsets.only(right: 6),
-        clipBehavior: Clip.none,
-        itemCount: allMessagesToDisplay.length + (isLoadingMore ? 1 : 0) + 1,
-        reverse: true,
-        itemBuilder: (context, i) {
-          // Show SizedBox at the very bottom (oldest message position, last index in reversed list)
-          // This provides space for shadows to render without being clipped
-          if (i == 0) {
-            return Container(height: 12);
-          }
-
-          // Adjust index for actual messages
-          final messageIndex = i - 1;
-
-          // Show loading indicator at the top (end of reversed list)
-          if (isLoadingMore && messageIndex == allMessagesToDisplay.length) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: CircularProgressIndicator(
-                  color: Config.primaryColor,
-                  strokeWidth: 2,
-                ),
-              ),
+        if (allMessagesToDisplay.isNotEmpty) {
+          debugPrint(
+            '[MESSAGES LIST] Building list with ${allMessagesToDisplay.length} messages',
+          );
+          for (int k = 0; k < 3 && k < allMessagesToDisplay.length; k++) {
+            debugPrint(
+              '[MESSAGES LIST] Item $k: ${allMessagesToDisplay[k]['content']} (ID: ${allMessagesToDisplay[k]['id']})',
             );
           }
-          final message = allMessagesToDisplay[messageIndex];
-          final messageId = message['id'] ?? message['clientId'];
-          final time = getMessageTime(message);
-          final isCurrentUser = message['sender_id'] == userId;
-          final isInQueue = messageIndex < queueMessages.length;
-          final messageOpacity = isInQueue ? 0.6 : 1.0;
+        }
 
-          debugPrint(
-            '[MESSAGES LIST] Rendering message ID: $messageId '
-            '(Index: $messageIndex, Message Content: "${message['content']}", Message Role: ${message['role']}',
+        // Show loading indicator if no messages
+        if (allMessagesToDisplay.isEmpty) {
+          return Center(
+            child: CircularProgressIndicator(
+              color: Config.primaryColor,
+              strokeWidth: 3,
+            ),
           );
+        }
 
-          // Watch the rebuild notifier to check if this specific message needs rebuilding
-          return ValueListenableBuilder<Set<dynamic>>(
-            valueListenable: _rebuildNotifier,
-            builder: (context, rebuildSet, child) {
-              final shouldRebuild = rebuildSet.contains(messageId);
-
-              // Animate ONLY if it's in the queue (sending) OR it's the specific new message added by ChatPage
-              final shouldAnimate =
-                  (isInQueue || messageId == widget.lastAnimatedMessageId) &&
-                  !_completedAnimations.contains(messageId);
-
-              // Get this message's individual animation controller
-              final messageController = _getOrCreateController(messageId);
-
-              final currentSenderId = message['sender_id'];
-              final prevSenderId = message['prev_sender_id'];
-              final nextSenderId = message['next_sender_id'];
-
-              // For queue messages, calculate sender change based on adjacent messages in combined list
-              var senderChangeFromPrev = false;
-              var senderChangeToNext = false;
-
-              if (isInQueue) {
-                // Check if sender changed from previous message in combined list
-                if (messageIndex > 0) {
-                  final prevMessage = allMessagesToDisplay[messageIndex - 1];
-                  senderChangeFromPrev =
-                      prevMessage['sender_id'] != currentSenderId;
-                } else {
-                  senderChangeFromPrev = true;
-                }
-
-                // Check if sender changes to next message in combined list
-                if (messageIndex + 1 < allMessagesToDisplay.length) {
-                  final nextMessage = allMessagesToDisplay[messageIndex + 1];
-                  senderChangeToNext =
-                      nextMessage['sender_id'] != currentSenderId;
-                } else {
-                  senderChangeToNext = true;
-                }
-              } else {
-                // For confirmed messages, use trigger data
-                senderChangeFromPrev =
-                    prevSenderId == null || currentSenderId != prevSenderId;
-                senderChangeToNext =
-                    nextSenderId == null || currentSenderId != nextSenderId;
+        return RawScrollbar(
+          controller: scrollController,
+          thumbVisibility: true,
+          trackVisibility: false,
+          thickness: 6,
+          radius: const Radius.circular(3),
+          thumbColor: Config.primaryColor.withAlpha(100),
+          interactive: true,
+          child: ListView.builder(
+            controller: scrollController,
+            padding: EdgeInsets.only(right: 6),
+            clipBehavior: Clip.none,
+            itemCount:
+                allMessagesToDisplay.length + (isLoadingMore ? 1 : 0) + 1,
+            reverse: true,
+            itemBuilder: (context, i) {
+              // Show SizedBox at the very bottom (oldest message position, last index in reversed list)
+              // This provides space for shadows to render without being clipped
+              if (i == 0) {
+                return Container(height: 12);
               }
 
-              // Check if this message is from a different day than the next message
-              bool isDifferentDayFromNext = false;
-              if (messageIndex + 1 < allMessagesToDisplay.length) {
-                final nextMessageTime = getMessageTime(
-                  allMessagesToDisplay[messageIndex + 1],
-                );
-                isDifferentDayFromNext = isDifferentDay(time, nextMessageTime);
-              } else {
-                // If this is the oldest message (last in reversed list), always show separator
-                isDifferentDayFromNext = true;
-              }
+              // Adjust index for actual messages
+              final messageIndex = i - 1;
 
-              // Check if this message is from a different day than the previous message
-              DateTime? prevMessageTime;
-              bool isDifferentDayFromPrev = false;
-              if (messageIndex - 1 >= 0) {
-                prevMessageTime = getMessageTime(
-                  allMessagesToDisplay[messageIndex - 1],
-                );
-                isDifferentDayFromPrev = isDifferentDay(time, prevMessageTime);
-              } else {
-                // First message in the list (newest overall) is always in a new day
-                isDifferentDayFromPrev = true;
-              }
-
-              // isNewestInDay: This is the newest (first shown) message in its day
-              // This happens when the previous message (in list) is from a different day
-              final isNewestInDay = isDifferentDayFromPrev;
-
-              // For the oldest message in each day, show full styles
-              final isOldestInDay = isDifferentDayFromNext;
-
-              // Different styling logic for queue vs confirmed messages
-              final shouldShowStyles = isInQueue
-                  ? (senderChangeToNext ||
-                        isOldestInDay) // Queue: show styles at END of group
-                  : (senderChangeFromPrev ||
-                        isOldestInDay); // Confirmed: show styles at START of group
-
-              // Wrap messageWidget with key - use ValueKey to preserve state
-              final keyedMessageWidget = KeyedSubtree(
-                key: ValueKey(messageId),
-                child: Opacity(
-                  opacity: messageOpacity,
-                  child: MessageItem(
-                    message: message,
-                    userId: userId,
-                    shouldShowStyles: shouldShowStyles,
-                    isOldestInDay: isOldestInDay,
-                    isNewestInDay: isNewestInDay,
-                    senderChangeToNext: senderChangeToNext,
-                    isDifferentDayFromNext: isDifferentDayFromNext,
-                    onResend: widget.onResendMessage != null
-                        ? () => widget.onResendMessage!(
-                            message['content'] as String,
-                          )
-                        : null,
+              // Show loading indicator at the top (end of reversed list)
+              if (isLoadingMore &&
+                  messageIndex == allMessagesToDisplay.length) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: Config.primaryColor,
+                      strokeWidth: 2,
+                    ),
                   ),
-                ),
-              );
+                );
+              }
+              final message = allMessagesToDisplay[messageIndex];
+              final messageId = message['id'] ?? message['clientId'];
+              final time = getMessageTime(message);
+              final isCurrentUser = message['sender_id'] == userId;
+              final isInQueue = messageIndex < queueMessages.length;
+              final messageOpacity = isInQueue ? 0.6 : 1.0;
 
-              // NEW MESSAGE: Wrap with SizeTransition (expansion) + Slide + Fade
-              // LOADED MESSAGE: Render at full size
-              final animatedChild = shouldAnimate
-                  ? SizeTransition(
-                      sizeFactor: Tween<double>(begin: 0, end: 1).animate(
-                        CurvedAnimation(
-                          parent: messageController,
-                          curve: Curves.easeOut,
-                        ),
+              // Watch the rebuild notifier to check if this specific message needs rebuilding
+              return ValueListenableBuilder<Set<dynamic>>(
+                valueListenable: _rebuildNotifier,
+                builder: (context, rebuildSet, child) {
+                  final shouldRebuild = rebuildSet.contains(messageId);
+
+                  // Animate ONLY if it's in the queue (sending), it's the specific new message added by ChatPage,
+                  // OR if the controller is explicitly animating (handled by addNewMessage)
+                  final bool isControllerAnimating =
+                      _messageControllers[messageId]?.isAnimating ?? false;
+
+                  final shouldAnimate =
+                      ((isInQueue ||
+                              messageId == widget.lastAnimatedMessageId) &&
+                          !_completedAnimations.contains(messageId)) ||
+                      (isControllerAnimating &&
+                          !_completedAnimations.contains(messageId));
+
+                  // Get this message's individual animation controller
+                  final messageController = _getOrCreateController(messageId);
+
+                  final currentSenderId = message['sender_id'];
+
+                  // Unified grouping logic: Calculate based on adjacent messages in allMessagesToDisplay
+                  // allMessagesToDisplay is [Newest -> Oldest]
+                  // Higher index = Older
+                  // Lower index = Younger
+
+                  var changedFromOlder = false;
+                  var changedToYounger = false;
+
+                  // 1. Check message ABOVE (older message, index + 1)
+                  if (messageIndex + 1 < allMessagesToDisplay.length) {
+                    final olderMessage = allMessagesToDisplay[messageIndex + 1];
+                    changedFromOlder =
+                        olderMessage['sender_id'] != currentSenderId;
+                  } else {
+                    changedFromOlder = true; // No older message
+                  }
+
+                  // 2. Check message BELOW (younger message, index - 1)
+                  if (messageIndex - 1 >= 0) {
+                    final youngerMessage =
+                        allMessagesToDisplay[messageIndex - 1];
+                    changedToYounger =
+                        youngerMessage['sender_id'] != currentSenderId;
+                  } else {
+                    changedToYounger = true; // No younger message
+                  }
+
+                  // Check if this message is from a different day than the next (OLDER) message
+                  bool isDifferentDayFromOlder = false;
+                  if (messageIndex + 1 < allMessagesToDisplay.length) {
+                    final olderMessageTime = getMessageTime(
+                      allMessagesToDisplay[messageIndex + 1],
+                    );
+                    isDifferentDayFromOlder = isDifferentDay(
+                      time,
+                      olderMessageTime,
+                    );
+                  } else {
+                    // If this is the oldest message in the entire list
+                    isDifferentDayFromOlder = true;
+                  }
+
+                  // Check if this message is from a different day than the previous (YOUNGER) message
+                  bool isDifferentDayFromYounger = false;
+                  if (messageIndex - 1 >= 0) {
+                    final youngerMessageTime = getMessageTime(
+                      allMessagesToDisplay[messageIndex - 1],
+                    );
+                    isDifferentDayFromYounger = isDifferentDay(
+                      time,
+                      youngerMessageTime,
+                    );
+                  } else {
+                    // Newest message overall
+                    isDifferentDayFromYounger = true;
+                  }
+
+                  // Avatar and Bubble Tails show at the START of a group (the TOP/OLDEST message)
+                  // Only if sender changed from older OR it's a new day
+                  final shouldShowStyles =
+                      changedFromOlder || isDifferentDayFromOlder;
+
+                  // Bubble rounding ends at the END of a group (the BOTTOM/NEWEST message)
+                  final isNewestInDay = isDifferentDayFromYounger;
+                  final senderChangeToNext = changedToYounger;
+                  // (named senderChangeToNext but refers to younger message for rounding)
+
+                  // For MessageItem logic
+                  final isOldestInDay = isDifferentDayFromOlder;
+
+                  // Wrap messageWidget with key - use ValueKey to preserve state
+                  final keyedMessageWidget = KeyedSubtree(
+                    key: ValueKey(messageId),
+                    child: Opacity(
+                      opacity: messageOpacity,
+                      child: MessageItem(
+                        message: message,
+                        userId: userId,
+                        shouldShowStyles: shouldShowStyles,
+                        isOldestInDay: isOldestInDay,
+                        isNewestInDay: isNewestInDay,
+                        senderChangeToNext: senderChangeToNext,
+                        isDifferentDayFromNext: isDifferentDayFromOlder,
+                        onResend: widget.onResendMessage != null
+                            ? () => widget.onResendMessage!(
+                                message['content'] as String,
+                              )
+                            : null,
                       ),
-                      child: SlideTransition(
-                        position:
-                            Tween<Offset>(
-                              begin: isCurrentUser
-                                  ? Offset(1.2, 0)
-                                  : Offset(-1.2, 0),
-                              end: Offset.zero,
-                            ).animate(
-                              CurvedAnimation(
-                                parent: messageController,
-                                curve: Curves.easeOut,
-                              ),
-                            ),
-                        child: FadeTransition(
-                          opacity: Tween<double>(begin: 0, end: 1).animate(
+                    ),
+                  );
+
+                  // NEW MESSAGE: Wrap with SizeTransition (expansion) + Slide + Fade
+                  // LOADED MESSAGE: Render at full size
+                  if (shouldAnimate) {
+                    debugPrint(
+                      '[ANIMATION] 🖌️ Rendering animation for $messageId (val: ${messageController.value})',
+                    );
+                  }
+
+                  final animatedChild = shouldAnimate
+                      ? SizeTransition(
+                          sizeFactor: Tween<double>(begin: 0, end: 1).animate(
                             CurvedAnimation(
                               parent: messageController,
                               curve: Curves.easeOut,
                             ),
                           ),
-                          child: keyedMessageWidget,
-                        ),
-                      ),
-                    )
-                  : keyedMessageWidget;
+                          child: SlideTransition(
+                            position:
+                                Tween<Offset>(
+                                  begin: isCurrentUser
+                                      ? Offset(1.2, 0)
+                                      : Offset(-1.2, 0),
+                                  end: Offset.zero,
+                                ).animate(
+                                  CurvedAnimation(
+                                    parent: messageController,
+                                    curve: Curves.easeOut,
+                                  ),
+                                ),
+                            child: FadeTransition(
+                              opacity: Tween<double>(begin: 0, end: 1).animate(
+                                CurvedAnimation(
+                                  parent: messageController,
+                                  curve: Curves.easeOut,
+                                ),
+                              ),
+                              child: keyedMessageWidget,
+                            ),
+                          ),
+                        )
+                      : keyedMessageWidget;
 
+                  // Apply expansion animation for new messages only
+                  final finalChild = animatedChild;
 
-              // Apply expansion animation for new messages only
-              final finalChild = animatedChild;
-
-              // Wrap in RepaintBoundary ONLY for old messages that don't need rebuild
-              // New messages and explicitly flagged messages rebuild normally
-              return (shouldAnimate || shouldRebuild)
-                  ? finalChild
-                  : RepaintBoundary(child: finalChild);
+                  // Wrap in RepaintBoundary ONLY for old messages that don't need rebuild
+                  // New messages and explicitly flagged messages rebuild normally
+                  return (shouldAnimate || shouldRebuild)
+                      ? finalChild
+                      : RepaintBoundary(child: finalChild);
+                },
+              );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }

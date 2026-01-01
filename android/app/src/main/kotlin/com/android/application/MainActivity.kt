@@ -1,4 +1,4 @@
-package com.example.frontend
+package com.android.application
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -10,7 +10,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "🎯 MainActivity onCreate - Supabase app ready")
+        Log.d(TAG, "🎯 MainActivity onCreate - AFX app ready")
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -20,6 +20,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        Log.d(TAG, "🎯 configureFlutterEngine called - Supabase initialized")
+        Log.d(TAG, "🎯 configureFlutterEngine called - Firebase ready")
     }
 }

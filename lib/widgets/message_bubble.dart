@@ -86,57 +86,66 @@ class MessageBubble extends StatelessWidget {
     super.key,
   });
 
-  Gradient _getMessageGradient() {
-    return isCurrentUser
-        ? LinearGradient(
-            begin: Alignment.bottomLeft,
-            end: Alignment.topRight,
-            colors: [Config.primaryColor, Config.secondaryColor],
-          )
-        : LinearGradient(
-            begin: Alignment.bottomRight,
-            end: Alignment.topLeft,
-            colors: [Config.lightPurpleColor, Config.veryLightPurpleColor],
-          );
+  Gradient _getMessageGradient(BuildContext context) {
+    if (isCurrentUser) {
+      return const LinearGradient(
+        begin: Alignment.bottomLeft,
+        end: Alignment.topRight,
+        colors: [Config.messageAdminStart, Config.messageAdminEnd],
+      );
+    }
+    final colors = Config.getOtherMessageGradient(context);
+    return LinearGradient(
+      begin: Alignment.bottomRight,
+      end: Alignment.topLeft,
+      colors: colors,
+    );
   }
 
-  Color _getBorderColor() {
-    return isCurrentUser
-        ? Config.primaryColor.withAlpha(10)
-        : Config.lightPurpleColor.withAlpha(10);
+  Color _getBorderColor(BuildContext context) {
+    if (isCurrentUser) {
+      return Config.messageAdminStart.withAlpha(10);
+    }
+    return Config.getOtherMessageGradient(context).first.withAlpha(10);
   }
 
   TextStyle _getMessageNameStyleWithAdmin(BuildContext context) {
     final textColor = isAdmin
-        ? (isCurrentUser ? Config.textMessage : Config.textAdminName)
-        : (isCurrentUser ? Config.textMessage : Config.textSecondary);
+        ? (isCurrentUser ? Config.textMessage : Config.primaryColor)
+        : (isCurrentUser
+              ? Config.textMessage
+              : Config.getTextColor(context, level: 2));
 
     return TextStyle(
       fontWeight: FontWeight.w700,
       fontSize: 13,
       color: textColor,
       letterSpacing: 0.1,
-      shadows: [
-        Shadow(
-          offset: const Offset(0, 0),
-          blurRadius: 4,
-          color: textColor.withAlpha(50),
-        ),
-      ],
+      shadows: Config.isDarkMode(context)
+          ? []
+          : [
+              Shadow(
+                offset: const Offset(0, 0),
+                blurRadius: 4,
+                color: textColor.withAlpha(50),
+              ),
+            ],
     );
   }
 
-  TextStyle _getMessageContentStyle() {
+  TextStyle _getMessageContentStyle(BuildContext context) {
     return TextStyle(
       fontWeight: FontWeight.normal,
       fontSize: 14,
-      color: isCurrentUser ? Config.textMessage : Config.textSecondary,
+      color: isCurrentUser ? Config.textMessage : Config.getTextColor(context),
       height: 1.4,
     );
   }
 
-  Color _getMessageTimeColor() {
-    return isCurrentUser ? Config.textTimestamp : Config.textTertiary;
+  Color _getMessageTimeColor(BuildContext context) {
+    return isCurrentUser
+        ? Config.textTimestamp
+        : Config.getTextColor(context, level: 3);
   }
 
   EdgeInsets _getMessageMargin() {
@@ -168,12 +177,16 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  List<BoxShadow> _getMessageShadow() {
+  List<BoxShadow> _getMessageShadow(BuildContext context) {
     return [
       BoxShadow(
         color: isCurrentUser
-            ? Config.primaryColor.withAlpha(100)
-            : Config.lightPurpleColor.withAlpha(100),
+            ? Config.messageAdminStart.withAlpha(
+                Config.isDarkMode(context) ? 0 : 100,
+              )
+            : Config.getShadowColor(
+                context,
+              ).withAlpha(13),
         blurRadius: 6,
         offset: const Offset(0, 0),
         spreadRadius: 0,
@@ -216,9 +229,9 @@ class MessageBubble extends StatelessWidget {
           ),
           child: Container(
             decoration: BoxDecoration(
-              gradient: _getMessageGradient(),
+              gradient: _getMessageGradient(context),
               borderRadius: _getMessageBorderRadius(),
-              boxShadow: _getMessageShadow(),
+              boxShadow: _getMessageShadow(context),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             margin: _getMessageMargin(),
@@ -243,7 +256,7 @@ class MessageBubble extends StatelessWidget {
                           children: [
                             Text(
                               _getMessageContent(),
-                              style: _getMessageContentStyle(),
+                              style: _getMessageContentStyle(context),
                             ),
                             const SizedBox(height: 5),
                           ],
@@ -259,7 +272,7 @@ class MessageBubble extends StatelessWidget {
                             timeStr,
                             style: TextStyle(
                               fontSize: 10,
-                              color: _getMessageTimeColor(),
+                              color: _getMessageTimeColor(context),
                             ),
                           ),
                         ],
@@ -279,9 +292,9 @@ class MessageBubble extends StatelessWidget {
             child: CustomPaint(
               size: const Size(16, 10),
               painter: ChatBubbleArrow(
-                color: _getMessageGradient().colors.last,
+                color: _getMessageGradient(context).colors.last,
                 isRight: isCurrentUser,
-                borderColor: _getBorderColor(),
+                borderColor: _getBorderColor(context),
               ),
             ),
           ),

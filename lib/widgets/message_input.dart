@@ -5,13 +5,11 @@ class MessageInput extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final bool enabled;
-  final String? disabledReason;
 
   const MessageInput({
     required this.controller,
     required this.onSend,
     required this.enabled,
-    this.disabledReason,
     super.key,
   });
 
@@ -22,96 +20,171 @@ class MessageInput extends StatefulWidget {
 class _MessageInputState extends State<MessageInput> {
   @override
   Widget build(BuildContext context) {
-    if (!widget.enabled && widget.disabledReason != null) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.lock_outline, size: 32, color: Config.textHint),
-              const SizedBox(height: 8),
-              Text(
-                widget.disabledReason!,
-                style: TextStyle(color: Config.textTertiary, fontSize: 13),
-                textAlign: TextAlign.center,
-              ),
-              Text(
-                'Contact an administrator to request access',
-                style: TextStyle(color: Config.textHint, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return Container(
       decoration: BoxDecoration(
         border: Border(
-          top: BorderSide(color: Config.borderSecondary, width: 1),
+          top: BorderSide(color: Config.getDividerColor(context), width: 1),
         ),
-        color: const Color.fromARGB(255, 250, 250, 250),
+        color: Config.getSurfaceColor(context),
       ),
       padding: const EdgeInsets.all(8),
-      constraints: const BoxConstraints(maxHeight: 88),
-      child: ValueListenableBuilder<TextEditingValue>(
-        valueListenable: widget.controller,
-        builder: (context, value, child) {
-          final bool hasText = value.text.isNotEmpty;
-          final bool canSend = widget.enabled && hasText;
-          return TextField(
-            controller: widget.controller,
-            enabled: widget.enabled,
-            cursorColor: Config.primaryColor,
-            decoration: InputDecoration(
-              hintText: 'Type a message',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide(color: Config.borderSecondary, width: 1),
+      constraints: const BoxConstraints(minHeight: 60, maxHeight: 80),
+      child: widget.enabled
+          ? IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Config.getBackgroundColor(context),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(24),
+                          bottomLeft: Radius.circular(24),
+                        ),
+                        border: Border(
+                          left: BorderSide(
+                            color: Config.getDividerColor(context),
+                            width: 1,
+                          ),
+                          top: BorderSide(
+                            color: Config.getDividerColor(context),
+                            width: 1,
+                          ),
+                          bottom: BorderSide(
+                            color: Config.getDividerColor(context),
+                            width: 1,
+                          ),
+                          right: BorderSide.none,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(24),
+                          bottomLeft: Radius.circular(24),
+                        ),
+                        child: TextField(
+                          controller: widget.controller,
+                          enabled: widget.enabled,
+                          cursorColor: Config.primaryColor,
+                          style: TextStyle(color: Config.getTextColor(context)),
+                          decoration: InputDecoration(
+                            hintText: 'Type a message',
+                            hintStyle: TextStyle(
+                              color: Config.getTextColor(context, level: 3),
+                            ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: true,
+                            fillColor: Colors.transparent,
+                            isDense: true,
+                            contentPadding: EdgeInsets.only(
+                              left: 8,
+                              right: 2,
+                              top: 12,
+                              bottom: 12,
+                            ),
+                          ),
+                          maxLines: null,
+                          minLines: 1,
+                          onSubmitted: (_) =>
+                              widget.enabled ? widget.onSend() : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 44,
+                    child: Material(
+                      borderRadius: BorderRadius.horizontal(
+                        right: Radius.circular(24),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      type: MaterialType.canvas,
+                      color: Config.getBackgroundColor(context),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.horizontal(
+                            right: Radius.circular(24),
+                          ),
+                          border: Border(
+                            top: BorderSide(
+                              color: Config.getDividerColor(context),
+                              width: 1,
+                            ),
+                            bottom: BorderSide(
+                              color: Config.getDividerColor(context),
+                              width: 1,
+                            ),
+                            right: BorderSide(
+                              color: Config.getDividerColor(context),
+                              width: 1,
+                            ),
+                            left: BorderSide.none,
+                          ),
+                        ),
+                        child: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: widget.controller,
+                          builder: (context, value, child) {
+                            final bool canSend =
+                                widget.enabled && value.text.isNotEmpty;
+                            return InkWell(
+                              customBorder: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.horizontal(
+                                  right: Radius.circular(23),
+                                ),
+                              ),
+                              onTap: canSend ? widget.onSend : null,
+                              highlightColor: Config.primaryColor.withAlpha(25),
+                              splashColor: Config.primaryColor.withAlpha(50),
+                              hoverColor: Config.primaryColor.withAlpha(10),
+                              child: Icon(
+                                Icons.send_rounded,
+                                color: canSend
+                                    ? Config.primaryColor
+                                    : Config.getTextColor(context, level: 3),
+                                size: 24,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide(color: Config.borderSecondary, width: 1),
-              ),
-              disabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide(
-                  color: Config.borderSecondary.withAlpha(100),
-                  width: 1,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide(
-                  color: Config.primaryColor.withAlpha(128),
-                  width: 1.5,
-                ),
-              ),
-              filled: true,
-              fillColor: Config.background,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              suffixIcon: IconButton(
-                padding: EdgeInsets.zero,
-                icon: Icon(
-                  Icons.send_rounded,
-                  color: canSend ? Config.primaryColor : Config.textHint,
-                  size: 24,
-                ),
-                onPressed: canSend ? widget.onSend : null,
+            )
+          : SizedBox(
+              height: 50,
+              child: Row(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    height: 26,
+                    child: Icon(
+                      Icons.lock_outline,
+                      size: 26,
+                      color: Config.getTextColor(context, level: 3),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'You cannot send messages in this chat.',
+                      style: TextStyle(
+                        color: Config.getTextColor(context, level: 2),
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
               ),
             ),
-            maxLines: null,
-            minLines: 1,
-            onSubmitted: (_) => widget.enabled ? widget.onSend() : null,
-          );
-        },
-      ),
     );
   }
 }

@@ -5,7 +5,7 @@ import '../widgets/profile_avatar.dart';
 
 class MessageItem extends StatelessWidget {
   final Map<String, dynamic> message;
-  final int userId;
+  final String userId;
   final bool shouldShowStyles;
   final bool isOldestInDay;
   final bool isNewestInDay;
@@ -25,7 +25,7 @@ class MessageItem extends StatelessWidget {
     super.key,
   });
 
-  bool get _isCurrentUser => message['sender_id'] == userId;
+  bool get _isCurrentUser => message['sender_id'].toString() == userId;
   bool get _isAdmin => message['role'] == 'admin';
 
   /// Formats a message time to HH:mm format
@@ -75,12 +75,8 @@ class MessageItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (message['role'] == 'admin') {
-       debugPrint('[MESSAGE ITEM] 🛡️ Building admin message: ${message['content']}');
-       debugPrint('[MESSAGE ITEM]    - Role in map: ${message['role']}');
-       debugPrint('[MESSAGE ITEM]    - _isAdmin getter: $_isAdmin');
-    }
-    
+    // Debug prints removed to reduce log noise
+
     final time = _parseMessageTime(message);
     final timeStr = formatMessageTime(time);
     final isAdmin = _isAdmin;
@@ -98,7 +94,12 @@ class MessageItem extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(child: Divider(color: Config.divider, thickness: 1)),
+                Expanded(
+                  child: Divider(
+                    color: Config.getDividerColor(context),
+                    thickness: 1,
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.only(
                     left: 12,
@@ -110,11 +111,16 @@ class MessageItem extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: Config.textQuaternary,
+                      color: Config.getTextColor(context, level: 3),
                     ),
                   ),
                 ),
-                Expanded(child: Divider(color: Config.divider, thickness: 1)),
+                Expanded(
+                  child: Divider(
+                    color: Config.getDividerColor(context),
+                    thickness: 1,
+                  ),
+                ),
               ],
             ),
           ),
@@ -162,7 +168,7 @@ class MessageItem extends StatelessWidget {
                             height: 14,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.white,
+                              color: Config.getSurfaceColor(context),
                             ),
                             child: Center(
                               child: Icon(

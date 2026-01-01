@@ -1,8 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 enum MessageStatus { sending, sent, delivered, read, failed }
 
 class ChatMessage {
-  final dynamic id; // Can be int or String from server
-  final int senderId;
+  final String id; // Firestore document ID
+  final String senderId; // Firebase Auth UID
   final String senderName;
   final String content;
   final String role;
@@ -10,8 +12,8 @@ class ChatMessage {
   final MessageStatus
   status; // 'Sending', 'Sent', 'Delivered', 'Read', 'Failed'
   final String? clientId; // Temporary ID for optimistic updates
-  final int? prevSenderId;
-  final int? nextSenderId;
+  final String? prevSenderId;
+  final String? nextSenderId;
 
   ChatMessage({
     required this.id,
@@ -29,18 +31,20 @@ class ChatMessage {
   /// Convert from Map (API response) to ChatMessage object
   factory ChatMessage.fromMap(Map<String, dynamic> map) {
     return ChatMessage(
-      id: map['id'],
-      senderId: map['sender_id'] as int,
-      senderName: map['sender_name'] as String,
-      content: map['content'] as String,
-      role: map['role'] as String,
+      id: map['id']?.toString() ?? '',
+      senderId: map['sender_id']?.toString() ?? '',
+      senderName: map['sender_name'] as String? ?? 'User',
+      content: map['content'] as String? ?? '',
+      role: map['role'] as String? ?? 'user',
       createdAt: map['created_at'] != null
-          ? DateTime.parse(map['created_at']).toLocal()
+          ? (map['created_at'] is Timestamp
+                ? (map['created_at'] as Timestamp).toDate()
+                : DateTime.parse(map['created_at'].toString()).toLocal())
           : DateTime.now(),
       status: _parseStatus(map['status'] as String?),
       clientId: map['clientId'] as String?,
-      prevSenderId: map['prev_sender_id'] as int?,
-      nextSenderId: map['next_sender_id'] as int?,
+      prevSenderId: map['prev_sender_id']?.toString(),
+      nextSenderId: map['next_sender_id']?.toString(),
     );
   }
 
@@ -62,16 +66,16 @@ class ChatMessage {
 
   /// Create a copy with modified fields (for updates)
   ChatMessage copyWith({
-    dynamic id,
-    int? senderId,
+    String? id,
+    String? senderId,
     String? senderName,
     String? content,
     String? role,
     DateTime? createdAt,
     MessageStatus? status,
     String? clientId,
-    int? prevSenderId,
-    int? nextSenderId,
+    String? prevSenderId,
+    String? nextSenderId,
   }) {
     return ChatMessage(
       id: id ?? this.id,

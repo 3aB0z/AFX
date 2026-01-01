@@ -1,8 +1,7 @@
 // lib/pages/login_page.dart
 import 'package:flutter/material.dart';
 import '../config.dart';
-import '../auth.dart';
-import '../services/supabase_service.dart';
+import '../services/firebase_service.dart';
 import 'dart:async';
 import 'chat_page.dart';
 
@@ -52,16 +51,21 @@ class _LoginFormState extends State<LoginForm> {
     setState(() => loading = true);
 
     try {
-      final data = await SupabaseService.login(
-        email: email,
-        password: password,
-      );
+      final credential = await FirebaseService.login(email, password);
 
-      if (!mounted) return;
+      if (!mounted || credential.user == null) return;
+
+      // Fetch user details from Firestore
+      var userData = await FirebaseService.getUserData(credential.user!.uid);
+
+      if (userData == null) {
+        throw Exception('User data not found in Firestore');
+      }
 
       // Handle pending status
-      if (data['status'] == 'pending') {
+      if (userData['status'] == 'pending') {
         setState(() => loading = false);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Your account request is pending approval'),
@@ -72,51 +76,25 @@ class _LoginFormState extends State<LoginForm> {
       }
 
       // Validate required fields
-      final id = data['id'];
-      final role = data['role'];
-      final name = data['name'];
+      final name = userData['name'];
+      final role = userData['role'];
 
-      if (id == null || role == null || name == null) {
-        throw Exception('Server returned incomplete user data');
+      if (name == null || role == null) {
+        throw Exception('Incomplete user data in Firestore');
       }
 
-      // Convert ID to int
-      final intId = id is int ? id : int.parse(id.toString());
-      final userEmail = data['email'] as String?;
-      final token = data['token'] as String?;
-
-      // Persist login
-      await Auth.saveLogin({
-        'id': intId,
-        'role': role,
-        'name': name,
-        'email': userEmail ?? email, // fallback to login email if not provided
-        if (token != null)
-          'token': token, // Save JWT token if present (admin users)
-      });
-
       // Navigate to chat
+      if (!mounted) return;
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => ChatPage(
-            userId: intId,
+            userId: credential.user!.uid, // Now a String UID
             userName: name,
-            userEmail: userEmail ?? email,
+            userEmail: email,
             userRole: role,
           ),
-        ),
-      );
-    } on TimeoutException {
-      if (!mounted) return;
-      setState(() => loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Login timed out - Check internet and Supabase credentials',
-          ),
-          duration: Duration(seconds: 5),
         ),
       );
     } catch (e) {
@@ -153,16 +131,19 @@ class _LoginFormState extends State<LoginForm> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Config.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Card(
-            color: Config.background,
-            shadowColor: Colors.black54,
-            elevation: 8,
+            color: Config.getSurfaceColor(context),
+            shadowColor: Config.getShadowColor(context),
+            elevation: Config.isDarkMode(context) ? 0 : 8,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
+              side: Config.isDarkMode(context)
+                  ? BorderSide(color: Config.getDividerColor(context))
+                  : BorderSide.none,
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
@@ -186,7 +167,7 @@ class _LoginFormState extends State<LoginForm> {
                     Text(
                       'if you have a verified account',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Config.textTertiary,
+                        color: Config.getTextColor(context, level: 3),
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -194,16 +175,22 @@ class _LoginFormState extends State<LoginForm> {
                     TextField(
                       controller: emailCtrl,
                       focusNode: _emailFocus,
-                      cursorColor: Config.primaryColor,
+                      style: TextStyle(color: Config.getTextColor(context)),
                       decoration: InputDecoration(
-                        hoverColor: Config.background,
+                        hoverColor: Colors.transparent,
                         labelText: 'Email',
-                        labelStyle: TextStyle(color: Config.textQuaternary),
+                        labelStyle: TextStyle(
+                          color: Config.getTextColor(context, level: 3),
+                        ),
                         border: OutlineInputBorder(
-                          borderSide: BorderSide(color: Config.borderSecondary),
+                          borderSide: BorderSide(
+                            color: Config.getDividerColor(context),
+                          ),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Config.borderSecondary),
+                          borderSide: BorderSide(
+                            color: Config.getDividerColor(context),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderSide: BorderSide(
@@ -212,10 +199,10 @@ class _LoginFormState extends State<LoginForm> {
                           ),
                         ),
                         filled: true,
-                        fillColor: Config.background,
+                        fillColor: Config.getBackgroundColor(context),
                         prefixIcon: Icon(
                           Icons.email_outlined,
-                          color: Config.textQuaternary,
+                          color: Config.getTextColor(context, level: 3),
                         ),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
@@ -235,15 +222,22 @@ class _LoginFormState extends State<LoginForm> {
                       controller: passwordCtrl,
                       focusNode: _passwordFocus,
                       cursorColor: Config.primaryColor,
+                      style: TextStyle(color: Config.getTextColor(context)),
                       decoration: InputDecoration(
-                        hoverColor: Config.background,
+                        hoverColor: Colors.transparent,
                         labelText: 'Password',
-                        labelStyle: TextStyle(color: Config.textQuaternary),
+                        labelStyle: TextStyle(
+                          color: Config.getTextColor(context, level: 3),
+                        ),
                         border: OutlineInputBorder(
-                          borderSide: BorderSide(color: Config.borderSecondary),
+                          borderSide: BorderSide(
+                            color: Config.getDividerColor(context),
+                          ),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Config.borderSecondary),
+                          borderSide: BorderSide(
+                            color: Config.getDividerColor(context),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderSide: BorderSide(
@@ -252,7 +246,7 @@ class _LoginFormState extends State<LoginForm> {
                           ),
                         ),
                         filled: true,
-                        fillColor: Config.background,
+                        fillColor: Config.getBackgroundColor(context),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -260,14 +254,14 @@ class _LoginFormState extends State<LoginForm> {
                         ),
                         prefixIcon: Icon(
                           Icons.lock_outline,
-                          color: Config.textQuaternary,
+                          color: Config.getTextColor(context, level: 3),
                         ),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
                                 ? Icons.visibility
                                 : Icons.visibility_off,
-                            color: Config.textQuaternary,
+                            color: Config.getTextColor(context, level: 3),
                           ),
                           onPressed: () => setState(
                             () => _obscurePassword = !_obscurePassword,
@@ -283,7 +277,9 @@ class _LoginFormState extends State<LoginForm> {
                       onPressed: loading ? null : login,
                       style: FilledButton.styleFrom(
                         backgroundColor: Config.primaryColor,
-                        disabledBackgroundColor: Config.borderSecondary,
+                        disabledBackgroundColor: Config.getDividerColor(
+                          context,
+                        ),
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         textStyle: const TextStyle(fontSize: 16),
                         shape: RoundedRectangleBorder(
@@ -309,7 +305,7 @@ class _LoginFormState extends State<LoginForm> {
                       'Don\'t have a verified account?',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Config.textTertiary,
+                        color: Config.getTextColor(context, level: 3),
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -321,7 +317,7 @@ class _LoginFormState extends State<LoginForm> {
                           'Create one and request access ',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Config.textTertiary,
+                            color: Config.getTextColor(context, level: 3),
                           ),
                           textAlign: TextAlign.center,
                         ),

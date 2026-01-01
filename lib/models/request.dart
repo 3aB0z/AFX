@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class Request {
-  final int id;
+  final String id;
   final String name;
   final String email;
   final String status;
@@ -15,11 +17,15 @@ class Request {
 
   factory Request.fromJson(Map<String, dynamic> json) {
     return Request(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      email: json['email'] as String,
-      status: json['status'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      id: json['id']?.toString() ?? '',
+      name: json['name'] as String? ?? 'User',
+      email: json['email'] as String? ?? '',
+      status: json['status'] as String? ?? 'pending',
+      createdAt: json['created_at'] != null
+          ? (json['created_at'] is Timestamp
+                ? (json['created_at'] as Timestamp).toDate()
+                : DateTime.parse(json['created_at'].toString()))
+          : DateTime.now(),
     );
   }
 }
