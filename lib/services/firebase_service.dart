@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'security_service.dart';
+import 'error_service.dart';
 
 class FirebaseService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -41,10 +43,15 @@ class FirebaseService {
   }
 
   static Future<UserCredential> login(String email, String password) async {
-    return await _auth.signInWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      ErrorService.handleFirebaseError(e, context: 'Login');
+      rethrow;
+    }
   }
 
   static Future<UserCredential> signUp(
@@ -52,25 +59,30 @@ class FirebaseService {
     String password,
     String name,
   ) async {
-    final credential = await _auth.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
-    if (credential.user != null) {
-      // Create user document in Firestore
-      await _db.collection('users').doc(credential.user!.uid).set({
-        'id': credential.user!.uid, // Store UID as ID
-        'name': name,
-        'email': email,
-        'role': 'user', // Default role
-        'status': 'pending',
-        'created_at': FieldValue.serverTimestamp(),
-        'can_send_messages': false,
-      });
+      if (credential.user != null) {
+        // Create user document in Firestore
+        await _db.collection('users').doc(credential.user!.uid).set({
+          'id': credential.user!.uid, // Store UID as ID
+          'name': name,
+          'email': email,
+          'role': 'user', // Default role
+          'status': 'pending',
+          'created_at': FieldValue.serverTimestamp(),
+          'can_send_messages': false,
+        });
+      }
+
+      return credential;
+    } catch (e) {
+      ErrorService.handleFirebaseError(e, context: 'Sign Up');
+      rethrow;
     }
-
-    return credential;
   }
 
   static Future<void> logout() async {
@@ -82,44 +94,71 @@ class FirebaseService {
   // ===========================================================================
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> getMessagesStream({
-    int limit = 20,
-    DocumentSnapshot? startAfterDocument,
+    int limit = 50,
   }) {
-    Query<Map<String, dynamic>> query = _db
+    // Note: Streams handle errors via .onError(), so we don't wrap in try-catch here.
+    // The consumer (ChatPage) should attach .onError() or use ErrorService in listen callback.
+    return _db
         .collection('messages')
-        .orderBy('created_at', descending: true);
-
-    if (startAfterDocument != null) {
-      query = query.startAfterDocument(startAfterDocument);
-    }
-
-    return query.limit(limit).snapshots();
+        .orderBy('created_at', descending: true)
+        .limit(limit)
+        .snapshots();
   }
 
   static Future<List<Map<String, dynamic>>> getOldMessages({
-    required int limit,
     required DateTime lastMessageTimestamp,
+    int limit = 50,
   }) async {
-    final snapshot = await _db
-        .collection('messages')
-        .orderBy('created_at', descending: true)
-        .startAfter([Timestamp.fromDate(lastMessageTimestamp)])
-        .limit(limit)
-        .get();
+    try {
+      final snapshot = await _db
+          .collection('messages')
+          .orderBy('created_at', descending: true)
+          .startAfter([Timestamp.fromDate(lastMessageTimestamp)])
+          .limit(limit)
+          .get();
 
-    return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+      return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+    } catch (e) {
+      ErrorService.handleFirebaseError(e, context: 'Load History');
+      return []; // Return empty list on error
+    }
   }
 
-  static String generateMessageId() {
+  /// Generate a temporary client ID for optimistic UI updates
+  /// The actual message ID (UUID) comes from the Cloud Function
+  static String generateClientId() {
     return _db.collection('messages').doc().id;
   }
 
-  static Future<void> sendMessage({
+  /// [DEPRECATED] Use SecurityService.sendSecureMessage instead
+  /// This is kept for backwards compatibility but routes to secure endpoint
+  static Future<SecureMessageResult> sendMessage({
     required String senderId,
     required String senderName,
     required String content,
     required String role,
-    String? docId, // Optional: Pre-generated ID
+    String? docId,
+  }) async {
+    // Route to secure Cloud Function
+    try {
+      return await SecurityService.sendSecureMessage(
+        content: content,
+        clientId: docId,
+      );
+    } catch (e) {
+      ErrorService.handleFirebaseError(e, context: 'Send Message');
+      rethrow;
+    }
+  }
+
+  /// [LEGACY] Direct Firestore write - only for migration/testing
+  /// This will be blocked by security rules in production
+  static Future<void> sendMessageDirect({
+    required String senderId,
+    required String senderName,
+    required String content,
+    required String role,
+    String? docId,
   }) async {
     final messageData = {
       'sender_id': senderId,
@@ -130,10 +169,8 @@ class FirebaseService {
     };
 
     if (docId != null) {
-      // Use pre-generated ID
       await _db.collection('messages').doc(docId).set(messageData);
     } else {
-      // Auto-generate ID (fallback)
       await _db.collection('messages').add(messageData);
     }
   }
@@ -153,10 +190,18 @@ class FirebaseService {
     return _db.collection('users').doc(uid).snapshots();
   }
 
-  static Future<void> updateUserStatus(String uid, String status) async {
+  /// Update user status via secure Cloud Function
+  static Future<OperationResult> updateUserStatus(
+    String uid,
+    String status,
+  ) async {
+    return SecurityService.updateUserStatus(targetUserId: uid, status: status);
+  }
+
+  /// [LEGACY] Direct Firestore update - for migration/testing only
+  static Future<void> updateUserStatusDirect(String uid, String status) async {
     await _db.collection('users').doc(uid).update({
       'status': status,
-      // User stays muted by default when verified
       if (status == 'rejected') ...{
         'can_send_messages': false,
         'rejected_at': FieldValue.serverTimestamp(),
@@ -164,12 +209,16 @@ class FirebaseService {
     });
   }
 
-  static Future<void> resubmitRequest(String uid) async {
+  /// Resubmit request via secure Cloud Function
+  static Future<OperationResult> resubmitRequest(String uid) async {
+    return SecurityService.resubmitRequest();
+  }
+
+  /// [LEGACY] Direct Firestore update - for migration/testing only
+  static Future<void> resubmitRequestDirect(String uid) async {
     await _db.collection('users').doc(uid).update({
       'status': 'pending',
       'can_send_messages': false,
-      // We don't clear rejected_at, so we can keep history if needed,
-      // but status change will let user in to the pending screen
     });
   }
 
@@ -230,7 +279,19 @@ class FirebaseService {
     });
   }
 
-  static Future<void> toggleMessageAccess(
+  /// Toggle message access via secure Cloud Function
+  static Future<OperationResult> toggleMessageAccess(
+    String uid,
+    bool canSendMessages,
+  ) async {
+    return SecurityService.toggleMessageAccess(
+      targetUserId: uid,
+      canSendMessages: canSendMessages,
+    );
+  }
+
+  /// [LEGACY] Direct Firestore update - for migration/testing only
+  static Future<void> toggleMessageAccessDirect(
     String uid,
     bool canSendMessages,
   ) async {

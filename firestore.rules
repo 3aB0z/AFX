@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =========================================================================
+    // HELPER FUNCTIONS
+    // =========================================================================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.role == 'admin';
+    }
+    
+    // Check if user is verified
+    function isVerified() {
+      return isAuthenticated() && request.auth.token.requestStatus == 'verified';
+    }
+    
+    // Check if accessing own document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // =========================================================================
+    // MESSAGES COLLECTION
+    // =========================================================================
+    
+    match /messages/{messageId} {
+      // Read: ONLY users with verified status can read messages
+      allow read: if isVerified();
+      
+      // Write: BLOCKED - All writes must go through Cloud Functions
+      // This enforces:
+      // - RBAC validation
+      // - Session verification
+      // - Content encryption
+      // - UUID generation
+      allow write: if false;
+      
+      // Note: Cloud Functions use Admin SDK which bypasses these rules
+    }
+    
+    // =========================================================================
+    // USERS COLLECTION
+    // =========================================================================
+    
+    match /users/{userId} {
+      // Read own profile: Always allowed for authenticated users
+      allow read: if isOwner(userId);
+      
+      // Read all profiles: Admins only
+      allow read: if isAdmin();
+      
+      // Write: BLOCKED - All writes must go through Cloud Functions
+      // This prevents:
+      // - Users from manually changing their status
+      // - Users from granting themselves message access
+      // - Tampering with role assignments
+      allow write: if false;
+      
+      // Exception: Allow users to update their FCM token
+      allow update: if isOwner(userId) && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['fcm_token', 'last_seen']);
+    }
+    
+    // =========================================================================
+    // ADDITIONAL COLLECTIONS (if any)
+    // =========================================================================
+    
+    // Default deny for any other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

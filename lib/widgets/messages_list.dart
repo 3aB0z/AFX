@@ -18,9 +18,12 @@ class MessagesList extends StatefulWidget {
     required this.userId,
     required this.lastAnimatedMessageId,
     this.isLoadingMore = false,
+    this.isInitialLoad = false,
     this.onResendMessage,
     super.key,
   });
+
+  final bool isInitialLoad;
 
   @override
   State<MessagesList> createState() => MessagesListState();
@@ -321,14 +324,45 @@ class MessagesListState extends State<MessagesList>
           }
         }
 
-        // Show loading indicator if no messages
+        // Show loading or empty state
         if (allMessagesToDisplay.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: Config.primaryColor,
-              strokeWidth: 3,
-            ),
-          );
+          if (widget.isInitialLoad) {
+            return Center(
+              child: CircularProgressIndicator(
+                color: Config.primaryColor,
+                strokeWidth: 3,
+              ),
+            );
+          } else {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.chat_bubble_outline,
+                    size: 48,
+                    color: Config.getTextColor(context, level: 3),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No messages yet',
+                    style: TextStyle(
+                      color: Config.getTextColor(context, level: 2),
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Be the first to start the conversation!',
+                    style: TextStyle(
+                      color: Config.getTextColor(context, level: 3),
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
         }
 
         return RawScrollbar(

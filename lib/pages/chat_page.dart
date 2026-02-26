@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/security_service.dart';
 import '../config.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_service.dart';
 import '../models/message.dart';
 import '../widgets/profile_avatar.dart';
@@ -10,6 +12,7 @@ import 'auth_page.dart';
 import 'requests_page.dart';
 import '../services/notification_service.dart';
 import '../services/theme_service.dart';
+import '../services/error_service.dart';
 import 'dart:async';
 
 // Internal Message class removed - using lib/models/message.dart instead
@@ -182,7 +185,9 @@ class _ChatPageState extends State<ChatPage>
   final TextEditingController controller = TextEditingController();
   final ScrollController _messagesScrollController = ScrollController();
   final GlobalKey<MessagesListState> _messagesListKey = GlobalKey();
+
   late AnimationController _badgeAnimController;
+  final FocusNode _messageFocusNode = FocusNode();
 
   // Subscriptions
   // Subscriptions
@@ -212,9 +217,33 @@ class _ChatPageState extends State<ChatPage>
       vsync: this,
     );
     _messagesScrollController.addListener(_onMessagesScroll);
+
+    // Start async initialization
+    _initializeChat();
+  }
+
+  Future<void> _initializeChat() async {
+    // 1. Force Token Refresh to ensure Firestore Rules see updated claims (e.g. 'verified')
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final tokenResult = await FirebaseAuth.instance.currentUser
+          ?.getIdTokenResult();
+      debugPrint(
+        '[CHAT_PAGE] 🔄 Auth Token refreshed. Claims: ${tokenResult?.claims}',
+      );
+    } catch (e) {
+      debugPrint('[CHAT_PAGE] ⚠️ Token refresh warning: $e');
+    }
+
+    if (!mounted) return;
+
+    // 2. Initialize E2EE Security
+    await SecurityService.initializeSecurity();
+
+    // 3. Load Messages
     loadMessages();
 
-    // Check message access or fetch admin counts
+    // 4. Check message access or fetch admin counts
     if (widget.userRole != 'admin') {
       checkMessageAccess();
     } else {
@@ -278,6 +307,7 @@ class _ChatPageState extends State<ChatPage>
     _userDataSubscription?.cancel();
     _requestsCountSubscription?.cancel();
     _badgeAnimController.dispose();
+    _messageFocusNode.dispose();
     super.dispose();
   }
 
@@ -376,6 +406,7 @@ class _ChatPageState extends State<ChatPage>
           })
           .catchError((e) {
             debugPrint('[CHAT_PAGE] ❌ Error loading old messages: $e');
+            ErrorService.handleFirebaseError(e, context: 'Pagination');
             if (mounted) {
               setState(() => _isLoadingMoreMessages = false);
             }
@@ -455,11 +486,14 @@ class _ChatPageState extends State<ChatPage>
               '[QUEUE] Current Queue IDs: ${currentQueue.map((m) => m['id']).toList()}',
             );
 
-            // Collect IDs to remove
-            final idsToRemove = messagesToAdd.map((m) => m.id).toSet();
+            // Collect client IDs to remove
+            final clientIdsToRemove = messagesToAdd
+                .map((m) => m.clientId)
+                .where((id) => id != null)
+                .toSet();
 
             currentQueue.removeWhere((queueMsg) {
-              final match = idsToRemove.contains(queueMsg['id']);
+              final match = clientIdsToRemove.contains(queueMsg['id']);
               if (match) {
                 debugPrint(
                   '[QUEUE] 🗑️ Removing queued message: ${queueMsg['id']}',
@@ -475,7 +509,7 @@ class _ChatPageState extends State<ChatPage>
               _queueNotifier.value = currentQueue;
             } else {
               debugPrint(
-                '[QUEUE] ⚠️ No messages removed from queue (IDs might not match). New IDs: $idsToRemove',
+                '[QUEUE] ⚠️ No messages removed from queue. Client IDs in batch: $clientIdsToRemove. Queue IDs: ${currentQueue.map((m) => m['id']).toList()}',
               );
             }
 
@@ -504,7 +538,9 @@ class _ChatPageState extends State<ChatPage>
         if (mounted) {
           setState(() {
             _isLoadingMoreMessages = false;
+            _isInitialLoad = false;
           });
+          ErrorService.handleFirebaseError(e, context: 'Messages Stream');
         }
       },
     );
@@ -541,7 +577,7 @@ class _ChatPageState extends State<ChatPage>
     // Generate a valid Firestore ID client-side
     // This allows us to match the queued message with the verified message
     // preventing double-rendering/flickering
-    final docId = FirebaseService.generateMessageId();
+    final docId = FirebaseService.generateClientId();
 
     // Create display message for queue
     final now = DateTime.now();
@@ -588,6 +624,9 @@ class _ChatPageState extends State<ChatPage>
 
     // Start processing queue if not already processing
     _processMessageQueue();
+
+    // Reset focus to input
+    _messageFocusNode.requestFocus();
   }
 
   /// Process messages from queue sequentially
@@ -644,11 +683,13 @@ class _ChatPageState extends State<ChatPage>
       });
 
       // ====================================================================
-      // STEP 1: SEND TO SERVER (Firestore)
+      // STEP 1: SEND TO SERVER (Cloud Function)
       // ====================================================================
       try {
-        debugPrint('[SEND_MSG] 🚀 Sending message to Firestore...');
-        await FirebaseService.sendMessage(
+        debugPrint(
+          '[SEND_MSG] 🚀 Sending message via secure Cloud Function...',
+        );
+        final result = await FirebaseService.sendMessage(
           senderId: widget.userId,
           senderName: widget.userName,
           content: text,
@@ -656,10 +697,36 @@ class _ChatPageState extends State<ChatPage>
           docId: docId,
         );
 
-        debugPrint('[SEND_MSG] 📥 Message sent to Firestore successfully');
+        if (result.success) {
+          debugPrint(
+            '[SEND_MSG] 📥 Message sent successfully. UUID: ${result.messageId}',
+          );
 
-        // Queue removal now happens automatically in the Firestore listener
-        // when the message is detected in the snapshot
+          // Pre-populate decryption cache with original plaintext
+          // This prevents "flicker" when the encrypted Firestore message arrives
+          SecurityService.addToDecryptionCache(result.messageId, text);
+
+          // Queue removal happens automatically in the Firestore listener
+          // when the message is detected in the snapshot
+        } else {
+          debugPrint('[SEND_MSG] ❌ Failed: ${result.error}');
+          // Mark as failed in queue
+          if (mounted) {
+            final currentQueue = List<Map<String, dynamic>>.from(
+              _queueNotifier.value,
+            );
+            final failedIndex = currentQueue.indexWhere(
+              (msg) => msg['clientId'] == displayClientId,
+            );
+            if (failedIndex >= 0) {
+              currentQueue[failedIndex]['status'] = 'Failed';
+              _queueNotifier.value = currentQueue;
+              debugPrint(
+                '[SEND_MSG] 🔴 Queue message at index $failedIndex marked as Failed',
+              );
+            }
+          }
+        }
       } catch (e) {
         debugPrint('[SEND_MSG] ❌ ERROR: $e');
 
@@ -729,11 +796,13 @@ class _ChatPageState extends State<ChatPage>
             userId: widget.userId,
             lastAnimatedMessageId: _lastAnimatedMessageId,
             isLoadingMore: _isLoadingMoreMessages,
+            isInitialLoad: _isInitialLoad,
             onResendMessage: _resendMessage,
           ),
         ),
         MessageInput(
           controller: controller,
+          focusNode: _messageFocusNode,
           onSend: sendMessage,
           enabled: widget.userRole == 'admin' || _canSendMessages,
         ),
@@ -1064,7 +1133,11 @@ class _ChatPageState extends State<ChatPage>
           ),
         ],
       ),
-      body: _buildMessagesTab(),
+
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: _buildMessagesTab(),
+      ),
     );
   }
 }

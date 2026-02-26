@@ -16,7 +16,7 @@ class RequestsPage extends StatefulWidget {
 class _RequestsPageState extends State<RequestsPage> {
   // Active Streams
   final Map<String, StreamSubscription?> _subscriptions = {};
-  
+
   // Data Store (Isolated lists per requirement)
   final Map<String, List<Map<String, dynamic>>> _requestsData = {
     'all': [],
@@ -40,7 +40,7 @@ class _RequestsPageState extends State<RequestsPage> {
     'verified': true,
     'rejected': true,
   };
-  
+
   final Map<String, int> _pages = {
     'all': 0,
     'pending': 0,
@@ -62,10 +62,10 @@ class _RequestsPageState extends State<RequestsPage> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    
+
     // Always listen to counts for the chips
     _listenToStatusCounts();
-    
+
     // Lazy Load: Only load the initial selected filter ('all')
     _loadRequestsForFilter(_selectedFilter);
   }
@@ -81,8 +81,9 @@ class _RequestsPageState extends State<RequestsPage> {
   }
 
   void _onScroll() {
-    if (_scrollController.hasClients && 
-        _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200) {
       _loadMoreRequests(_selectedFilter);
     }
   }
@@ -92,19 +93,21 @@ class _RequestsPageState extends State<RequestsPage> {
   // ===========================================================================
 
   void _listenToStatusCounts() {
-    _statusCountsSubscription = FirebaseService.getAllStatusCountsStream().listen(
-      (counts) {
-        if (mounted) {
-          setState(() {
-            _pendingCount = counts['pending'] ?? 0;
-            _verifiedCount = counts['verified'] ?? 0;
-            _rejectedCount = counts['rejected'] ?? 0;
-            _allCount = counts['all'] ?? 0;
-          });
-        }
-      },
-      onError: (e) => debugPrint('[REQUESTS_PAGE] ❌ Error in counts stream: $e'),
-    );
+    _statusCountsSubscription = FirebaseService.getAllStatusCountsStream()
+        .listen(
+          (counts) {
+            if (mounted) {
+              setState(() {
+                _pendingCount = counts['pending'] ?? 0;
+                _verifiedCount = counts['verified'] ?? 0;
+                _rejectedCount = counts['rejected'] ?? 0;
+                _allCount = counts['all'] ?? 0;
+              });
+            }
+          },
+          onError: (e) =>
+              debugPrint('[REQUESTS_PAGE] ❌ Error in counts stream: $e'),
+        );
   }
 
   // Handles switching filters and lazy loading
@@ -130,18 +133,19 @@ class _RequestsPageState extends State<RequestsPage> {
 
   Future<void> _loadRequestsForFilter(String filter) async {
     // If we already have an active subscription for this filter, do we need to do anything?
-    // The requirements imply we should fetch/subscribe when selected. 
+    // The requirements imply we should fetch/subscribe when selected.
     // If we want to be strictly lazy and save resources, we could cancel other subscriptions?
-    // But usually keeping them alive for a bit is better UX. 
+    // But usually keeping them alive for a bit is better UX.
     // We will start the stream if not started.
 
     if (_subscriptions[filter] != null) return; // Already listening
 
     setState(() {
       _isLoading[filter] = true;
-      _pages[filter] = 0; // Reset pagination logic if we were using it, but for Streams with pagination it's tricky.
+      _pages[filter] =
+          0; // Reset pagination logic if we were using it, but for Streams with pagination it's tricky.
       // Note: The previous code mixed Pagination (getRequestsByStatus) and Streams.
-      // To satisfy "Lazy-Loading" + "Async State Fix" + "Real-time behavior", 
+      // To satisfy "Lazy-Loading" + "Async State Fix" + "Real-time behavior",
       // we need a STABLE approach.
       // Pure Streams are best for real-time. Pagination with Streams requires 'limit' increasion.
       // We will use the stream with a limit that increases on scroll.
@@ -153,42 +157,49 @@ class _RequestsPageState extends State<RequestsPage> {
   void _subscribeToStream(String filter, {int limit = 20}) {
     _subscriptions[filter]?.cancel();
 
-    debugPrint('[REQUESTS_PAGE] 🔌 Subscribing to $filter stream (limit: $limit)');
-
-    _subscriptions[filter] = FirebaseService.getRequestsStream(filter, limit: limit).listen(
-      (data) {
-        if (mounted) {
-          setState(() {
-            _requestsData[filter] = data;
-            _isLoading[filter] = false;
-            // Crude hasMore check: if we got exactly the limit, maybe there's more.
-            _hasMore[filter] = data.length >= limit; 
-          });
-          debugPrint('[REQUESTS_PAGE] 📥 Stream matched for $filter: ${data.length} items');
-        }
-      },
-      onError: (e) {
-        debugPrint('[REQUESTS_PAGE] ❌ Error in $filter stream: $e');
-        if (mounted) {
-          setState(() {
-            _isLoading[filter] = false;
-          });
-        }
-      },
+    debugPrint(
+      '[REQUESTS_PAGE] 🔌 Subscribing to $filter stream (limit: $limit)',
     );
+
+    _subscriptions[filter] =
+        FirebaseService.getRequestsStream(filter, limit: limit).listen(
+          (data) {
+            if (mounted) {
+              setState(() {
+                _requestsData[filter] = data;
+                _isLoading[filter] = false;
+                // Crude hasMore check: if we got exactly the limit, maybe there's more.
+                _hasMore[filter] = data.length >= limit;
+              });
+              debugPrint(
+                '[REQUESTS_PAGE] 📥 Stream matched for $filter: ${data.length} items',
+              );
+            }
+          },
+          onError: (e) {
+            debugPrint('[REQUESTS_PAGE] ❌ Error in $filter stream: $e');
+            if (mounted) {
+              setState(() {
+                _isLoading[filter] = false;
+              });
+            }
+          },
+        );
   }
 
   void _loadMoreRequests(String filter) {
     if (_isLoading[filter] == true) return; // Debounce
     // With streams, "load more" means increasing the limit of the query
-    
+
     final currentLength = _requestsData[filter]?.length ?? 0;
     // Arbitrary pagination step
     final int newLimit = currentLength + 20;
 
-    debugPrint('[REQUESTS_PAGE] 📜 Loading more for $filter (new limit: $newLimit)');
-    
-    // We don't set _isLoading to true here to avoid blocking interaction/flickering, 
+    debugPrint(
+      '[REQUESTS_PAGE] 📜 Loading more for $filter (new limit: $newLimit)',
+    );
+
+    // We don't set _isLoading to true here to avoid blocking interaction/flickering,
     // or we can show a bottom loader.
     // For streams, re-subscribing might cause a full refresh flicker if not handled carefully by Firestore (usually it's fine).
     _subscribeToStream(filter, limit: newLimit);
@@ -199,7 +210,7 @@ class _RequestsPageState extends State<RequestsPage> {
     // Or just resets the limit to 20.
     _subscribeToStream(_selectedFilter, limit: 20);
     setState(() {
-       _pages[_selectedFilter] = 0;
+      _pages[_selectedFilter] = 0;
     });
   }
 
@@ -212,13 +223,33 @@ class _RequestsPageState extends State<RequestsPage> {
       // Optimistic update removed per REQUIREMENTS for Data Integrity.
       // "specific statuses must fetch fresh data from their own endpoints rather than filtering existing local lists."
       // We rely on the server update propagating back via the stream.
-      
-      await FirebaseService.updateUserStatus(userId, newStatus);
-      debugPrint('[REQUESTS_PAGE] ✅ Status updated for $userId to $newStatus');
+
+      final result = await FirebaseService.updateUserStatus(userId, newStatus);
+      if (!mounted) return;
+
+      if (result.success) {
+        debugPrint(
+          '[REQUESTS_PAGE] ✅ Status updated for $userId to $newStatus',
+        );
+      } else {
+        debugPrint(
+          '[REQUESTS_PAGE] ❌ Failed to update status: ${result.message}',
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed: ${result.message}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
+      if (!mounted) return;
       debugPrint('[REQUESTS_PAGE] ❌ Error updating status: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update status: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Failed to update status: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -226,12 +257,35 @@ class _RequestsPageState extends State<RequestsPage> {
   Future<void> toggleMessageAccess(String userId, dynamic currentAccess) async {
     try {
       final bool newAccess = currentAccess != true;
-      await FirebaseService.toggleMessageAccess(userId, newAccess);
-       debugPrint('[REQUESTS_PAGE] ✅ Message access toggled for $userId to $newAccess');
+      final result = await FirebaseService.toggleMessageAccess(
+        userId,
+        newAccess,
+      );
+      if (!mounted) return;
+
+      if (result.success) {
+        debugPrint(
+          '[REQUESTS_PAGE] ✅ Message access toggled for $userId to $newAccess',
+        );
+      } else {
+        debugPrint(
+          '[REQUESTS_PAGE] ❌ Failed to toggle access: ${result.message}',
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed: ${result.message}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
-       debugPrint('[REQUESTS_PAGE] ❌ Error toggling access: $e');
-       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to toggle access: $e'), backgroundColor: Colors.red),
+      if (!mounted) return;
+      debugPrint('[REQUESTS_PAGE] ❌ Error toggling access: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to toggle access: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -242,7 +296,9 @@ class _RequestsPageState extends State<RequestsPage> {
 
   Future<void> showEditDialog(Map<String, dynamic> request) async {
     final String userId = request['id'] ?? '';
-    String currentStatus = (request['status'] ?? 'pending').toString().toLowerCase();
+    String currentStatus = (request['status'] ?? 'pending')
+        .toString()
+        .toLowerCase();
 
     if (!['pending', 'verified', 'rejected'].contains(currentStatus)) {
       currentStatus = 'pending';
@@ -277,11 +333,13 @@ class _RequestsPageState extends State<RequestsPage> {
                       isExpanded: true,
                       style: TextStyle(color: Config.getTextColor(context)),
                       items: ['pending', 'verified', 'rejected'].map((status) {
-                         return DropdownMenuItem(
+                        return DropdownMenuItem(
                           value: status,
                           child: Text(
                             status[0].toUpperCase() + status.substring(1),
-                            style: TextStyle(color: Config.getTextColor(context)),
+                            style: TextStyle(
+                              color: Config.getTextColor(context),
+                            ),
                           ),
                         );
                       }).toList(),
@@ -304,7 +362,9 @@ class _RequestsPageState extends State<RequestsPage> {
                 style: TextButton.styleFrom(
                   backgroundColor: Config.primaryColor,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
                 onPressed: () {
                   updateRequestStatus(userId, currentStatus);
@@ -322,7 +382,7 @@ class _RequestsPageState extends State<RequestsPage> {
   Widget _buildFilterChip(String value, String label, int count) {
     final isSelected = _selectedFilter == value;
     final isDarkMode = Config.isDarkMode(context);
-    
+
     return GestureDetector(
       onTap: () => _onFilterChanged(value),
       child: Container(
@@ -427,214 +487,334 @@ class _RequestsPageState extends State<RequestsPage> {
               ],
             ),
           ),
-          
+
           // List
           Expanded(
             child: RefreshIndicator(
               color: Config.primaryColor,
               onRefresh: _refreshCurrentFilter,
               child: isCurrentLoading && currentRequests.isEmpty
-                  ? Center(child: CircularProgressIndicator(color: Config.primaryColor))
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: Config.primaryColor,
+                      ),
+                    )
                   : currentRequests.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.inbox_outlined, size: 64, color: Config.getTextColor(context, level: 3)),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No ${_selectedFilter} requests',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Config.getTextColor(context, level: 2),
-                                ),
-                              ),
-                            ],
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.inbox_outlined,
+                            size: 64,
+                            color: Config.getTextColor(context, level: 3),
                           ),
-                        )
-                      : RawScrollbar(
-                          controller: _scrollController,
-                          thumbVisibility: true,
-                          trackVisibility: false,
-                          thickness: 6,
-                          radius: const Radius.circular(3),
-                          thumbColor: Config.primaryColor.withAlpha(100),
-                          child: ListView.builder(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                            itemCount: currentRequests.length + 1, // +1 for loader/spacer
-                            itemBuilder: (context, index) {
-                              if (index == currentRequests.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Center(
-                                    child: _hasMore[_selectedFilter] == true 
-                                        ? SizedBox(
-                                            width: 24, height: 24, 
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Config.primaryColor)
-                                          )
-                                        : const SizedBox.shrink(),
-                                  ),
-                                );
-                              }
-                              
-                              final request = currentRequests[index];
-                              final status = (request['status'] ?? '').toString();
-                              final Color statusColor = status.toLowerCase() == 'verified'
-                                  ? Colors.green
-                                  : status.toLowerCase() == 'rejected'
-                                      ? Colors.red[400]!
-                                      : Colors.blue;
+                          const SizedBox(height: 16),
+                          Text(
+                            'No $_selectedFilter requests',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Config.getTextColor(context, level: 2),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : RawScrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      trackVisibility: false,
+                      thickness: 6,
+                      radius: const Radius.circular(3),
+                      thumbColor: Config.primaryColor.withAlpha(100),
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                        itemCount:
+                            currentRequests.length + 1, // +1 for loader/spacer
+                        itemBuilder: (context, index) {
+                          if (index == currentRequests.length) {
+                            return Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Center(
+                                child: _hasMore[_selectedFilter] == true
+                                    ? SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Config.primaryColor,
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(),
+                              ),
+                            );
+                          }
 
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                color: Config.getSurfaceColor(context),
-                                elevation: isDarkMode ? 0 : 2,
-                                shadowColor: Config.getShadowColor(context),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  side: isDarkMode ? BorderSide(color: Config.getDividerColor(context)) : BorderSide.none,
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
+                          final request = currentRequests[index];
+                          final status = (request['status'] ?? '').toString();
+                          final Color statusColor =
+                              status.toLowerCase() == 'verified'
+                              ? Colors.green
+                              : status.toLowerCase() == 'rejected'
+                              ? Colors.red[400]!
+                              : Colors.blue;
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            color: Config.getSurfaceColor(context),
+                            elevation: isDarkMode ? 0 : 2,
+                            shadowColor: Config.getShadowColor(context),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: isDarkMode
+                                  ? BorderSide(
+                                      color: Config.getDividerColor(context),
+                                    )
+                                  : BorderSide.none,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Row(
-                                              children: [
-                                                ProfileAvatar(fullName: request['name'] ?? 'User', size: 40),
-                                                const SizedBox(width: 12),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                      Expanded(
+                                        child: Row(
+                                          children: [
+                                            ProfileAvatar(
+                                              fullName:
+                                                  request['name'] ?? 'User',
+                                              size: 40,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
                                                     children: [
-                                                      Row(
-                                                        children: [
-                                                          Text(
-                                                            request['name'] ?? 'User',
-                                                            style: TextStyle(
-                                                              fontWeight: FontWeight.w600,
-                                                              fontSize: 16,
-                                                              color: Config.getTextColor(context),
-                                                            ),
-                                                            overflow: TextOverflow.ellipsis,
-                                                          ),
-                                                          const SizedBox(width: 12),
-                                                          Container(
-                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                            decoration: BoxDecoration(
-                                                              color: statusColor.withAlpha(26),
-                                                              borderRadius: BorderRadius.circular(14),
-                                                              border: Border.all(
-                                                                color: statusColor.withAlpha(isDarkMode ? 100 : 128),
-                                                                width: isDarkMode ? 1 : 0.5,
-                                                              ),
-                                                            ),
-                                                            child: Text(
-                                                              status.toUpperCase(),
-                                                              style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w700),
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
                                                       Text(
-                                                        request['email'] ?? '',
-                                                        style: TextStyle(color: Config.getTextColor(context, level: 2), fontSize: 13),
-                                                        overflow: TextOverflow.ellipsis,
+                                                        request['name'] ??
+                                                            'User',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          fontSize: 16,
+                                                          color:
+                                                              Config.getTextColor(
+                                                                context,
+                                                              ),
+                                                        ),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      const SizedBox(width: 12),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 6,
+                                                              vertical: 2,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: statusColor
+                                                              .withAlpha(26),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                14,
+                                                              ),
+                                                          border: Border.all(
+                                                            color: statusColor
+                                                                .withAlpha(
+                                                                  isDarkMode
+                                                                      ? 100
+                                                                      : 128,
+                                                                ),
+                                                            width: isDarkMode
+                                                                ? 1
+                                                                : 0.5,
+                                                          ),
+                                                        ),
+                                                        child: Text(
+                                                          status.toUpperCase(),
+                                                          style: TextStyle(
+                                                            color: statusColor,
+                                                            fontSize: 10,
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                          ),
+                                                        ),
                                                       ),
                                                     ],
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          Row(
-                                            children: [
-                                              if (status.toLowerCase() == 'verified')
-                                                Container(
-                                                  decoration: BoxDecoration(
-                                                    color: Config.getBackgroundColor(context),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    border: Border.all(color: Config.getDividerColor(context)),
-                                                  ),
-                                                  child: InkWell(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    onTap: () => toggleMessageAccess(request['id'], request['can_send_messages']),
-                                                    child: Padding(
-                                                      padding: const EdgeInsets.all(6),
-                                                      child: Icon(
-                                                        request['can_send_messages'] == true ? Icons.chat_outlined : Icons.speaker_notes_off_outlined,
-                                                        color: request['can_send_messages'] == true ? Colors.green : (isDarkMode ? Colors.red[300] : Colors.red[400]),
-                                                        size: 22,
-                                                      ),
+                                                  Text(
+                                                    request['email'] ?? '',
+                                                    style: TextStyle(
+                                                      color:
+                                                          Config.getTextColor(
+                                                            context,
+                                                            level: 2,
+                                                          ),
+                                                      fontSize: 13,
                                                     ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
-                                                ),
-                                              const SizedBox(width: 4),
-                                              if (status.toLowerCase() != 'pending')
-                                                Container(
-                                                  decoration: BoxDecoration(
-                                                    color: Config.getBackgroundColor(context),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    border: Border.all(color: Config.getDividerColor(context)),
-                                                  ),
-                                                  child: InkWell(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    onTap: () => showEditDialog(request),
-                                                    child: Padding(
-                                                      padding: const EdgeInsets.all(6),
-                                                      child: Icon(Icons.edit, color: isDarkMode ? Colors.blue[300] : Colors.blue, size: 22),
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      if (status.toLowerCase() == 'pending') ...[
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: ElevatedButton.icon(
-                                                onPressed: () => updateRequestStatus(request['id'], 'verified'),
-                                                icon: const Icon(Icons.check_circle, size: 20),
-                                                label: const Text('Approve'),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: Colors.green,
-                                                  foregroundColor: Colors.white,
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: ElevatedButton.icon(
-                                                onPressed: () => updateRequestStatus(request['id'], 'rejected'),
-                                                icon: const Icon(Icons.close),
-                                                label: const Text('Reject'),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: Colors.red[400]!,
-                                                  foregroundColor: Colors.white,
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                ),
+                                                ],
                                               ),
                                             ),
                                           ],
                                         ),
-                                      ],
+                                      ),
+                                      Row(
+                                        children: [
+                                          if (status.toLowerCase() ==
+                                              'verified')
+                                            Container(
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    Config.getBackgroundColor(
+                                                      context,
+                                                    ),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: Config.getDividerColor(
+                                                    context,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: InkWell(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                onTap: () => toggleMessageAccess(
+                                                  request['id'],
+                                                  request['can_send_messages'],
+                                                ),
+                                                child: Padding(
+                                                  padding: const EdgeInsets.all(
+                                                    6,
+                                                  ),
+                                                  child: Icon(
+                                                    request['can_send_messages'] ==
+                                                            true
+                                                        ? Icons.chat_outlined
+                                                        : Icons
+                                                              .speaker_notes_off_outlined,
+                                                    color:
+                                                        request['can_send_messages'] ==
+                                                            true
+                                                        ? Colors.green
+                                                        : (isDarkMode
+                                                              ? Colors.red[300]
+                                                              : Colors
+                                                                    .red[400]),
+                                                    size: 22,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          const SizedBox(width: 4),
+                                          if (status.toLowerCase() != 'pending')
+                                            Container(
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    Config.getBackgroundColor(
+                                                      context,
+                                                    ),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: Config.getDividerColor(
+                                                    context,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: InkWell(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                onTap: () =>
+                                                    showEditDialog(request),
+                                                child: Padding(
+                                                  padding: const EdgeInsets.all(
+                                                    6,
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.edit,
+                                                    color: isDarkMode
+                                                        ? Colors.blue[300]
+                                                        : Colors.blue,
+                                                    size: 22,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                     ],
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                                  if (status.toLowerCase() == 'pending') ...[
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: () =>
+                                                updateRequestStatus(
+                                                  request['id'],
+                                                  'verified',
+                                                ),
+                                            icon: const Icon(
+                                              Icons.check_circle,
+                                              size: 20,
+                                            ),
+                                            label: const Text('Approve'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.green,
+                                              foregroundColor: Colors.white,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: () =>
+                                                updateRequestStatus(
+                                                  request['id'],
+                                                  'rejected',
+                                                ),
+                                            icon: const Icon(Icons.close),
+                                            label: const Text('Reject'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.red[400]!,
+                                              foregroundColor: Colors.white,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
             ),
           ),
         ],

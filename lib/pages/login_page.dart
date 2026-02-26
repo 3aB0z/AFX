@@ -292,7 +292,7 @@ class _LoginFormState extends State<LoginForm> {
                               width: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Config.textLight,
+                                color: Config.primaryColor,
                               ),
                             )
                           : Text(

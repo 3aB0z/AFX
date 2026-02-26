@@ -214,17 +214,7 @@ class MessageItem extends StatelessWidget {
     }
 
     if (isSending) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(
-            strokeWidth: 1.5,
-            valueColor: AlwaysStoppedAnimation<Color>(Config.primaryColor),
-          ),
-        ),
-      );
+      return const SizedBox(width: 14); // Keep spacing but remove indicator
     }
 
     if (isFailed) {

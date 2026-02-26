@@ -12,6 +12,7 @@ import 'services/firebase_service.dart';
 import 'services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/theme_service.dart';
+import 'services/error_service.dart';
 import 'config.dart';
 import 'dart:async';
 import 'firebase_options.dart';
@@ -148,6 +149,7 @@ class _AFXAppState extends State<AFXApp> with WidgetsBindingObserver {
       builder: (context, mode, child) {
         return MaterialApp(
           navigatorKey: NotificationService.navigatorKey,
+          scaffoldMessengerKey: ErrorService.messengerKey,
           title: 'AFX',
           debugShowCheckedModeBanner: false,
           themeMode: mode,
@@ -173,6 +175,9 @@ class _AFXAppState extends State<AFXApp> with WidgetsBindingObserver {
               brightness: Brightness.light,
               surface: Config.bgLight,
             ),
+            progressIndicatorTheme: const ProgressIndicatorThemeData(
+              color: Config.primaryColor,
+            ),
           ),
           darkTheme: ThemeData.dark(useMaterial3: true).copyWith(
             primaryColor: Config.primaryColor,
@@ -195,6 +200,9 @@ class _AFXAppState extends State<AFXApp> with WidgetsBindingObserver {
               seedColor: Config.primaryColor,
               brightness: Brightness.dark,
               surface: Config.bgDark,
+            ),
+            progressIndicatorTheme: const ProgressIndicatorThemeData(
+              color: Config.primaryColor,
             ),
           ),
           // Use StreamBuilder to handle auth state changes automatically

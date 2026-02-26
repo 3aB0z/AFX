@@ -504,7 +504,7 @@ class _RequestPageState extends State<RequestPage> {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Config.textLight,
+                        color: Config.primaryColor,
                       ),
                     )
                   : Icon(Icons.send_rounded, size: 20, color: Config.textLight),

@@ -5,11 +5,13 @@ class MessageInput extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final bool enabled;
+  final FocusNode? focusNode;
 
   const MessageInput({
     required this.controller,
     required this.onSend,
     required this.enabled,
+    this.focusNode,
     super.key,
   });
 
@@ -65,6 +67,7 @@ class _MessageInputState extends State<MessageInput> {
                         ),
                         child: TextField(
                           controller: widget.controller,
+                          focusNode: widget.focusNode,
                           enabled: widget.enabled,
                           cursorColor: Config.primaryColor,
                           style: TextStyle(color: Config.getTextColor(context)),

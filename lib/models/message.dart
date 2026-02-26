@@ -14,6 +14,8 @@ class ChatMessage {
   final String? clientId; // Temporary ID for optimistic updates
   final String? prevSenderId;
   final String? nextSenderId;
+  final bool encrypted;
+  final String? contentHash;
 
   ChatMessage({
     required this.id,
@@ -26,6 +28,8 @@ class ChatMessage {
     this.clientId,
     this.prevSenderId,
     this.nextSenderId,
+    this.encrypted = false,
+    this.contentHash,
   });
 
   /// Convert from Map (API response) to ChatMessage object
@@ -39,12 +43,16 @@ class ChatMessage {
       createdAt: map['created_at'] != null
           ? (map['created_at'] is Timestamp
                 ? (map['created_at'] as Timestamp).toDate()
-                : DateTime.parse(map['created_at'].toString()).toLocal())
+                : (map['created_at'] is String
+                      ? DateTime.parse(map['created_at'].toString()).toLocal()
+                      : DateTime.now()))
           : DateTime.now(),
       status: _parseStatus(map['status'] as String?),
-      clientId: map['clientId'] as String?,
+      clientId: map['clientId'] as String? ?? map['client_id'] as String?,
       prevSenderId: map['prev_sender_id']?.toString(),
       nextSenderId: map['next_sender_id']?.toString(),
+      encrypted: map['encrypted'] == true,
+      contentHash: map['content_hash'] as String?,
     );
   }
 
@@ -59,8 +67,11 @@ class ChatMessage {
       'created_at': createdAt.toIso8601String(),
       'status': _statusToString(status),
       'clientId': clientId,
+      'client_id': clientId,
       'prev_sender_id': prevSenderId,
       'next_sender_id': nextSenderId,
+      'encrypted': encrypted,
+      'content_hash': contentHash,
     };
   }
 
@@ -76,6 +87,8 @@ class ChatMessage {
     String? clientId,
     String? prevSenderId,
     String? nextSenderId,
+    bool? encrypted,
+    String? contentHash,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -88,6 +101,8 @@ class ChatMessage {
       clientId: clientId ?? this.clientId,
       prevSenderId: prevSenderId ?? this.prevSenderId,
       nextSenderId: nextSenderId ?? this.nextSenderId,
+      encrypted: encrypted ?? this.encrypted,
+      contentHash: contentHash ?? this.contentHash,
     );
   }
 

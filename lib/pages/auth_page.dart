@@ -16,13 +16,14 @@ class AuthPage extends StatelessWidget {
       initialIndex: initialIndex,
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          backgroundColor: Config.getSurfaceColor(context),
           elevation: 0,
           systemOverlayStyle: SystemUiOverlayStyle(
             statusBarColor: Config.primaryColor,
-            statusBarBrightness: Theme.of(context).brightness,
-            statusBarIconBrightness:
-                Theme.of(context).brightness == Brightness.dark
+            statusBarBrightness: Config.isDarkMode(context)
+                ? Brightness.dark
+                : Brightness.light,
+            statusBarIconBrightness: Config.isDarkMode(context)
                 ? Brightness.light
                 : Brightness.dark,
           ),
@@ -31,7 +32,7 @@ class AuthPage extends StatelessWidget {
             labelColor: Config.primaryColor,
             indicatorColor: Config.primaryColor,
             unselectedLabelColor: Config.getTextColor(context, level: 3),
-            dividerColor: Theme.of(context).dividerColor,
+            dividerColor: Config.getDividerColor(context),
             tabs: [
               Tab(
                 child: Row(
@@ -39,12 +40,7 @@ class AuthPage extends StatelessWidget {
                   children: [
                     const Icon(Icons.login),
                     const SizedBox(width: 8),
-                    Text(
-                      'Login',
-                      style: TextStyle(
-                        color: Config.getTextColor(context, level: 2),
-                      ),
-                    ),
+                    const Text('Login'),
                   ],
                 ),
               ),
@@ -54,12 +50,7 @@ class AuthPage extends StatelessWidget {
                   children: [
                     const Icon(Icons.person_add),
                     const SizedBox(width: 8),
-                    Text(
-                      'Request Access',
-                      style: TextStyle(
-                        color: Config.getTextColor(context, level: 2),
-                      ),
-                    ),
+                    const Text('Request Access'),
                   ],
                 ),
               ),
