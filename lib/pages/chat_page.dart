@@ -229,6 +229,9 @@ class _ChatPageState extends State<ChatPage>
       final tokenResult = await FirebaseAuth.instance.currentUser
           ?.getIdTokenResult();
       debugPrint(
+        '[CHAT_PAGE] 🔑 ID Token for Postman: ${await FirebaseAuth.instance.currentUser?.getIdToken()}',
+      );
+      debugPrint(
         '[CHAT_PAGE] 🔄 Auth Token refreshed. Claims: ${tokenResult?.claims}',
       );
     } catch (e) {
