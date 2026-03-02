@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config.dart';
 import '../services/firebase_service.dart';
 import '../widgets/profile_avatar.dart';
+import '../services/error_service.dart';
 
 // Request management logic is now integrated directly into RequestsPage methods
 
@@ -232,25 +233,12 @@ class _RequestsPageState extends State<RequestsPage> {
           '[REQUESTS_PAGE] ✅ Status updated for $userId to $newStatus',
         );
       } else {
-        debugPrint(
-          '[REQUESTS_PAGE] ❌ Failed to update status: ${result.message}',
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed: ${result.message}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ErrorService.show(result.message);
       }
     } catch (e) {
       if (!mounted) return;
       debugPrint('[REQUESTS_PAGE] ❌ Error updating status: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update status: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ErrorService.handleFirebaseError(e, context: 'Update Status');
     }
   }
 
@@ -268,25 +256,12 @@ class _RequestsPageState extends State<RequestsPage> {
           '[REQUESTS_PAGE] ✅ Message access toggled for $userId to $newAccess',
         );
       } else {
-        debugPrint(
-          '[REQUESTS_PAGE] ❌ Failed to toggle access: ${result.message}',
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed: ${result.message}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ErrorService.show(result.message);
       }
     } catch (e) {
       if (!mounted) return;
       debugPrint('[REQUESTS_PAGE] ❌ Error toggling access: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to toggle access: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ErrorService.handleFirebaseError(e, context: 'Toggle Access');
     }
   }
 

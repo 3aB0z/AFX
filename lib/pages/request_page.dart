@@ -4,6 +4,7 @@ import '../config.dart';
 import '../services/firebase_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import '../services/error_service.dart';
 
 class RequestPage extends StatefulWidget {
   const RequestPage({super.key});
@@ -239,25 +240,7 @@ class _RequestPageState extends State<RequestPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => loading = false);
-
-      final errorMsg = e.toString();
-      String displayMessage = 'Error: $errorMsg';
-
-      // Parse specific errors
-      if (errorMsg.contains('Email already exists')) {
-        displayMessage = 'Email already exists - Please use a different email';
-      } else if (errorMsg.contains('Invalid')) {
-        displayMessage = 'Invalid input - Please check your details';
-      } else if (errorMsg.contains('Connection')) {
-        displayMessage = 'Connection error - Check your internet';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(displayMessage),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      ErrorService.handleFirebaseError(e, context: 'Sign Up');
     }
   }
 

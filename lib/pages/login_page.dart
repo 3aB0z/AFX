@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import '../config.dart';
 import '../services/firebase_service.dart';
-import 'dart:async';
+import '../services/error_service.dart';
 import 'chat_page.dart';
 
 class LoginForm extends StatefulWidget {
@@ -100,31 +100,7 @@ class _LoginFormState extends State<LoginForm> {
     } catch (e) {
       if (!mounted) return;
       setState(() => loading = false);
-
-      final errorMsg = e.toString();
-      String displayMessage = errorMsg;
-
-      // Parse specific auth errors
-      if (errorMsg.contains('Invalid email or password')) {
-        displayMessage = 'Invalid email or password';
-      } else if (errorMsg.contains('Account not found')) {
-        displayMessage = 'Account not found - Please create one first';
-      } else if (errorMsg.contains('pending')) {
-        displayMessage = 'Your account is pending approval';
-      } else if (errorMsg.contains('rejected')) {
-        displayMessage = 'Your account request was rejected';
-      } else if (errorMsg.contains('Connection timeout')) {
-        displayMessage = 'Connection timeout - Check your internet';
-      } else if (errorMsg.contains('Connection refused')) {
-        displayMessage = 'Cannot reach server - Check credentials';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(displayMessage),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      ErrorService.handleFirebaseError(e, context: 'Login');
     }
   }
 

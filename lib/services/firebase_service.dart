@@ -49,7 +49,6 @@ class FirebaseService {
         password: password,
       );
     } catch (e) {
-      ErrorService.handleFirebaseError(e, context: 'Login');
       rethrow;
     }
   }
@@ -80,13 +79,28 @@ class FirebaseService {
 
       return credential;
     } catch (e) {
-      ErrorService.handleFirebaseError(e, context: 'Sign Up');
       rethrow;
     }
   }
 
   static Future<void> logout() async {
-    await _auth.signOut();
+    try {
+      // 1. Wipe Security Keys and Caches
+      await SecurityService.resetSecurity();
+
+      // 2. Clear Local Preferences (Role, Permissions, Cooldowns)
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      // 3. Firebase Sign Out
+      await _auth.signOut();
+
+      debugPrint('[FIREBASE_SERVICE] 🔒 Secure Logout complete');
+    } catch (e) {
+      debugPrint('[FIREBASE_SERVICE] ❌ Error during logout: $e');
+      // Still attempt to sign out if other steps fail
+      await _auth.signOut();
+    }
   }
 
   // ===========================================================================
@@ -146,7 +160,6 @@ class FirebaseService {
         clientId: docId,
       );
     } catch (e) {
-      ErrorService.handleFirebaseError(e, context: 'Send Message');
       rethrow;
     }
   }

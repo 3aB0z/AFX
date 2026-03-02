@@ -159,6 +159,24 @@ class SecurityService {
     }
   }
 
+  /// Wipe all security data from memory and local storage (Call on Logout)
+  static Future<void> resetSecurity() async {
+    try {
+      // 1. Clear memory
+      _cachedKey = null;
+      _initCompleter = null;
+      _decryptionCache.clear();
+      isKeyReady.value = false;
+
+      // 2. Clear secure storage
+      await _storage.delete(key: _keyName);
+
+      debugPrint('[SECURITY] 🧹 Security data wiped successfully');
+    } catch (e) {
+      debugPrint('[SECURITY] ❌ Failed to wipe security data: $e');
+    }
+  }
+
   /// Encrypt content locally using AES-256-CTR
   static Future<String> encryptLocal(String plaintext) async {
     if (_cachedKey == null) {
@@ -172,7 +190,7 @@ class SecurityService {
     }
     final iv = enc.IV.fromSecureRandom(16);
     final encrypter = enc.Encrypter(
-      enc.AES(_cachedKey!, mode: enc.AESMode.ctr),
+      enc.AES(_cachedKey!, mode: enc.AESMode.ctr, padding: null),
     );
     final encrypted = encrypter.encrypt(plaintext, iv: iv);
 
@@ -200,7 +218,7 @@ class SecurityService {
       final data = parts[1];
 
       final encrypter = enc.Encrypter(
-        enc.AES(_cachedKey!, mode: enc.AESMode.ctr),
+        enc.AES(_cachedKey!, mode: enc.AESMode.ctr, padding: null),
       );
       return encrypter.decrypt64(data, iv: iv);
     } catch (e) {
@@ -304,15 +322,12 @@ class SecurityService {
         success: data['success'] ?? false,
         message: data['message'] ?? '',
       );
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('[SECURITY] Update status error: ${e.code} - ${e.message}');
-      return OperationResult(
-        success: false,
-        message: e.message ?? 'Failed to update status',
-      );
     } catch (e) {
       debugPrint('[SECURITY] Update status error: $e');
-      return OperationResult(success: false, message: e.toString());
+      return OperationResult(
+        success: false,
+        message: ErrorService.getFriendlyMessage(e, context: 'Update Status'),
+      );
     }
   }
 
@@ -331,15 +346,12 @@ class SecurityService {
         success: data['success'] ?? false,
         message: data['message'] ?? '',
       );
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('[SECURITY] Toggle access error: ${e.code} - ${e.message}');
-      return OperationResult(
-        success: false,
-        message: e.message ?? 'Failed to toggle access',
-      );
     } catch (e) {
       debugPrint('[SECURITY] Toggle access error: $e');
-      return OperationResult(success: false, message: e.toString());
+      return OperationResult(
+        success: false,
+        message: ErrorService.getFriendlyMessage(e, context: 'Toggle Access'),
+      );
     }
   }
 
@@ -356,15 +368,15 @@ class SecurityService {
         success: data['success'] ?? false,
         message: data['message'] ?? '',
       );
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('[SECURITY] Resubmit error: ${e.code} - ${e.message}');
-      return OperationResult(
-        success: false,
-        message: e.message ?? 'Failed to resubmit request',
-      );
     } catch (e) {
       debugPrint('[SECURITY] Resubmit error: $e');
-      return OperationResult(success: false, message: e.toString());
+      return OperationResult(
+        success: false,
+        message: ErrorService.getFriendlyMessage(
+          e,
+          context: 'Resubmit Request',
+        ),
+      );
     }
   }
 
